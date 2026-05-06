@@ -24,6 +24,7 @@ const QUICK_REPLIES = [
 export default function ChatWidget({ settings = {} }) {
   const { isOpen, openChat, closeChat, toggleChat } = useChatWidget();
   const [messages, setMessages] = useState([]);
+  const messagesRef = useRef([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [leadCaptured, setLeadCaptured] = useState(false);
@@ -38,12 +39,14 @@ export default function ChatWidget({ settings = {} }) {
   const businessName = settings.business_name || "Sokogate";
 
   useEffect(() => {
-    setMessages([
+    const initial = [
       {
         role: "assistant",
         content: `👋 Hello! I'm your AI sourcing assistant from **${businessName}**.\n\nI help connect buyers and suppliers across Africa and beyond. Whether you're looking to source products in bulk or find buyers for your goods — I'm here to help!\n\nWhat are you looking for today?`,
       },
-    ]);
+    ];
+    setMessages(initial);
+    messagesRef.current = initial;
   }, [businessName]);
 
   // Silent error logger - don't let failed chats break the UI
@@ -64,6 +67,10 @@ export default function ChatWidget({ settings = {} }) {
   }, [messages, isLoading]);
 
   useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
     if (isOpen && inputRef.current) {
       setTimeout(() => inputRef.current?.focus(), 100);
     }
@@ -81,15 +88,19 @@ export default function ChatWidget({ settings = {} }) {
     if (!msgText.trim() || isLoading) return;
 
     const userMessage = { role: "user", content: msgText };
+
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setIsLoading(true);
 
     try {
+      // Use the latest conversation from a ref to avoid stale closures.
+      const payloadMessages = [...messagesRef.current, userMessage];
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: [...messages, userMessage] }),
+        body: JSON.stringify({ messages: payloadMessages }),
       });
 
       if (!response.ok) throw new Error("Chat failed");
@@ -100,10 +111,10 @@ export default function ChatWidget({ settings = {} }) {
         { role: "assistant", content: data.content },
       ]);
 
-      if (data.leadCaptured && !leadCaptured) {
+      if (data?.leadCaptured) {
         setLeadCaptured(true);
-        if (data.whatsapp) setCapturedWhatsapp(data.whatsapp);
-        if (data.leadName) setCapturedName(data.leadName);
+        if (data?.whatsapp) setCapturedWhatsapp(data.whatsapp);
+        if (data?.leadName) setCapturedName(data.leadName);
       }
     } catch (error) {
       console.error(error);
@@ -126,7 +137,7 @@ export default function ChatWidget({ settings = {} }) {
       .replace(/\n/g, "<br/>");
   };
 
-  const showQuickReplies = messages.length <= 1 && !isLoading;
+  const showQuickReplies = messages.length <= 1 && !isLoading && !leadCaptured;
 
   return (
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
