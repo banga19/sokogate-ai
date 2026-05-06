@@ -4,3 +4,17 @@
 # React Router
 /.react-router/
 /build/
+
+# Deployment
+cpanel-deploy/
+*.zip
+sokogate-web-*.zip
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
