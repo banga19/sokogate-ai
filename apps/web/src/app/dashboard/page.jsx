@@ -427,26 +427,64 @@ export default function DashboardPage() {
      },
    });
 
-   const updateShippingMutation = useMutation({
-     mutationFn: async ({ id, shipping_status }) => {
-       const res = await fetch("/api/leads", {
-         method: "PATCH",
-         headers: { "Content-Type": "application/json" },
-         body: JSON.stringify({ id, shipping_status }),
-       });
-       if (!res.ok) throw new Error("Failed to update shipping status");
-       return res.json();
-     },
-     onSuccess: (updatedLead) => {
-       queryClient.setQueryData(['leads'], old => old.map(l => l.id === updatedLead.id ? updatedLead : l));
-       queryClient.invalidateQueries({ queryKey: ["analytics"] });
-     },
-   });
+  const updateShippingMutation = useMutation({
+    mutationFn: async ({ id, shipping_status }) => {
+      const res = await fetch("/api/leads", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, shipping_status }),
+      });
+      if (!res.ok) throw new Error("Failed to update shipping status");
+      return res.json();
+    },
+    onSuccess: (updatedLead) => {
+      queryClient.setQueryData(['leads'], old => old.map(l => l.id === updatedLead.id ? updatedLead : l));
+      queryClient.invalidateQueries({ queryKey: ["analytics"] });
+    },
+  });
+
+  const createLeadMutation = useMutation({
+    mutationFn: async (leadData) => {
+      const res = await fetch("/api/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(leadData),
+      });
+      if (!res.ok) throw new Error("Failed to create lead");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["leads"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics"] });
+      setShowCreateModal(false);
+      setNewLead({
+        name: "",
+        email: "",
+        phone: "",
+        whatsapp: "",
+        category: "",
+        intent_summary: "",
+        message: "",
+        score: "Medium",
+      });
+    },
+  });
 
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
   const [selectedLead, setSelectedLead] = useState(null);
   const [activeTab, setActiveTab] = useState("leads"); // leads | analytics
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newLead, setNewLead] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    whatsapp: "",
+    category: "",
+    intent_summary: "",
+    message: "",
+    score: "Medium",
+  });
 
   const filteredLeads = leads.filter((lead) => {
     const matchesSearch =

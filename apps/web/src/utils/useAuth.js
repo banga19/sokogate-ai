@@ -1,3 +1,4 @@
+"use client";
 import { useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { signIn, signOut } from "@auth/create/react";
