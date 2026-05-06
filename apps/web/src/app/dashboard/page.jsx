@@ -26,6 +26,7 @@ import {
   CreditCard,
   Truck,
   Package,
+  Plus,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -384,6 +385,177 @@ function LeadDetailModal({ lead, onClose, onStatusUpdate, onPaymentUpdate, onShi
         </div>
       </div>
     </div>
+   );
+}
+
+function CreateLeadModal({ show, onClose, newLead, setNewLead, createLeadMutation }) {
+  if (!show) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+        {/* Modal Header */}
+        <div
+          className="flex items-center justify-between p-6 border-b border-slate-100"
+          style={{
+            background: `linear-gradient(135deg, ${PRIMARY}15, ${SECONDARY}10)`,
+          }}
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className="w-12 h-12 rounded-full flex items-center justify-center text-white font-black text-lg"
+              style={{ backgroundColor: PRIMARY }}
+            >
+              <Plus size={24} />
+            </div>
+            <div>
+              <h3 className="font-black text-slate-800 text-lg">
+                Create New Lead
+              </h3>
+              <p className="text-xs text-slate-500">
+                Manually add a lead to the database
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="hover:bg-slate-100 p-2 rounded-lg transition-colors"
+          >
+            <X size={20} className="text-slate-500" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          {/* Name */}
+          <div>
+            <label className="block text-xs font-bold text-slate-600 mb-1.5">Name *</label>
+            <input
+              type="text"
+              value={newLead.name}
+              onChange={(e) => setNewLead({ ...newLead, name: e.target.value })}
+              placeholder="John Doe"
+              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 text-sm"
+              style={{ "--tw-ring-color": PRIMARY }}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            {/* Email */}
+            <div>
+              <label className="block text-xs font-bold text-slate-600 mb-1.5">Email</label>
+              <input
+                type="email"
+                value={newLead.email}
+                onChange={(e) => setNewLead({ ...newLead, email: e.target.value })}
+                placeholder="john@example.com"
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 text-sm"
+                style={{ "--tw-ring-color": PRIMARY }}
+              />
+            </div>
+
+            {/* Phone */}
+            <div>
+              <label className="block text-xs font-bold text-slate-600 mb-1.5">Phone</label>
+              <input
+                type="tel"
+                value={newLead.phone}
+                onChange={(e) => setNewLead({ ...newLead, phone: e.target.value })}
+                placeholder="+254 712 345 678"
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 text-sm"
+                style={{ "--tw-ring-color": PRIMARY }}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            {/* WhatsApp */}
+            <div>
+              <label className="block text-xs font-bold text-slate-600 mb-1.5">WhatsApp</label>
+              <input
+                type="tel"
+                value={newLead.whatsapp}
+                onChange={(e) => setNewLead({ ...newLead, whatsapp: e.target.value })}
+                placeholder="+254 712 345 678"
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 text-sm"
+                style={{ "--tw-ring-color": PRIMARY }}
+              />
+            </div>
+
+            {/* Score */}
+            <div>
+              <label className="block text-xs font-bold text-slate-600 mb-1.5">Score</label>
+              <select
+                value={newLead.score}
+                onChange={(e) => setNewLead({ ...newLead, score: e.target.value })}
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 text-sm bg-white"
+                style={{ "--tw-ring-color": PRIMARY }}
+              >
+                <option value="High">🔥 High</option>
+                <option value="Medium">⚡ Medium</option>
+                <option value="Low">📋 Low</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Category */}
+          <div>
+            <label className="block text-xs font-bold text-slate-600 mb-1.5">Category</label>
+            <input
+              type="text"
+              value={newLead.category}
+              onChange={(e) => setNewLead({ ...newLead, category: e.target.value })}
+              placeholder="Electronics, Apparel, etc."
+              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 text-sm"
+              style={{ "--tw-ring-color": PRIMARY }}
+            />
+          </div>
+
+          {/* Intent Summary */}
+          <div>
+            <label className="block text-xs font-bold text-slate-600 mb-1.5">Intent Summary</label>
+            <textarea
+              value={newLead.intent_summary}
+              onChange={(e) => setNewLead({ ...newLead, intent_summary: e.target.value })}
+              placeholder="Brief summary of lead's intent..."
+              rows={2}
+              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 text-sm resize-none"
+              style={{ "--tw-ring-color": PRIMARY }}
+            />
+          </div>
+
+          {/* Message */}
+          <div>
+            <label className="block text-xs font-bold text-slate-600 mb-1.5">Original Message</label>
+            <textarea
+              value={newLead.message}
+              onChange={(e) => setNewLead({ ...newLead, message: e.target.value })}
+              placeholder="Full inquiry/message from lead..."
+              rows={3}
+              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 text-sm resize-none"
+              style={{ "--tw-ring-color": PRIMARY }}
+            />
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-3 pt-2">
+            <button
+              onClick={onClose}
+              className="flex-1 px-4 py-3 border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-50 transition-colors text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => createLeadMutation.mutate(newLead)}
+              disabled={!newLead.name.trim() || createLeadMutation.isPending}
+              className="flex-1 px-4 py-3 text-white rounded-xl font-bold transition-colors text-sm disabled:opacity-50"
+              style={{ backgroundColor: PRIMARY }}
+            >
+              {createLeadMutation.isPending ? "Creating..." : "Create Lead"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -678,6 +850,13 @@ export default function DashboardPage() {
 
       {/* Main Content */}
       <main className="flex-1 overflow-auto min-w-0">
+        <CreateLeadModal
+          show={showCreateModal}
+          onClose={() => setShowCreateModal(false)}
+          newLead={newLead}
+          setNewLead={setNewLead}
+          createLeadMutation={createLeadMutation}
+        />
         {/* Header */}
         <header className="bg-white border-b border-slate-200 px-8 py-4 flex flex-wrap justify-between items-center gap-4 sticky top-0 z-10">
           <div>
@@ -808,25 +987,36 @@ export default function DashboardPage() {
                     {filteredLeads.length} leads shown
                   </p>
                 </div>
-                <div className="flex gap-2 flex-wrap">
-                  {["All", "New", "Qualified", "Closed"].map((status) => (
-                    <button
-                      key={status}
-                      onClick={() => setFilterStatus(status)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                        filterStatus === status
-                          ? "text-white shadow-sm"
-                          : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-                      }`}
-                      style={
-                        filterStatus === status
-                          ? { backgroundColor: PRIMARY }
-                          : {}
-                      }
-                    >
-                      {status}
-                    </button>
-                  ))}
+
+                <div className="flex gap-2 flex-wrap items-center">
+                  <button
+                    onClick={() => setShowCreateModal(true)}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-colors hover:opacity-90"
+                    style={{ backgroundColor: PRIMARY, color: "white" }}
+                  >
+                    <Plus size={14} /> Add new lead
+                  </button>
+
+                  <div className="flex gap-2 flex-wrap">
+                    {["All", "New", "Qualified", "Closed"].map((status) => (
+                      <button
+                        key={status}
+                        onClick={() => setFilterStatus(status)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                          filterStatus === status
+                            ? "text-white shadow-sm"
+                            : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                        }`}
+                        style={
+                          filterStatus === status
+                            ? { backgroundColor: PRIMARY }
+                            : {}
+                        }
+                      >
+                        {status}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
