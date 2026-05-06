@@ -22,6 +22,10 @@ import {
   ChevronRight,
   Star,
   Zap,
+  Tag,
+  CreditCard,
+  Truck,
+  Package,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -34,16 +38,17 @@ import {
   CartesianGrid,
   Legend,
 } from "recharts";
+import { useRealtimeLeads } from "@/utils/useRealtimeLeads";
 
 const fetchLeads = async () => {
   const res = await fetch("/api/leads");
-  if (!res.ok) throw new Error("Failed to fetch leads");
+  if (!res.ok) return []; // Return empty array if API fails
   return res.json();
 };
 
 const fetchAnalytics = async () => {
   const res = await fetch("/api/leads/analytics");
-  if (!res.ok) throw new Error("Failed to fetch analytics");
+  if (!res.ok) return { total: 0, highIntent: 0, qualified: 0 }; // Return fallback
   return res.json();
 };
 
@@ -91,16 +96,16 @@ function ScoreBadge({ score }) {
   );
 }
 
-function StatusSelect({ lead, onUpdate, isPending }) {
+function LeadStatusSelect({ value, onChange, isPending }) {
   return (
     <select
-      value={lead.status}
-      onChange={(e) => onUpdate({ id: lead.id, status: e.target.value })}
+      value={value || "New"}
+      onChange={(e) => onChange(e.target.value)}
       disabled={isPending}
       className={`text-xs font-bold rounded-lg px-2 py-1.5 border focus:outline-none cursor-pointer transition-colors ${
-        lead.status === "New"
+        value === "New"
           ? "text-blue-700 bg-blue-50 border-blue-200"
-          : lead.status === "Qualified"
+          : value === "Qualified"
             ? "text-green-700 bg-green-50 border-green-200"
             : "text-slate-500 bg-slate-50 border-slate-200"
       }`}
@@ -112,7 +117,70 @@ function StatusSelect({ lead, onUpdate, isPending }) {
   );
 }
 
-function LeadDetailModal({ lead, onClose, onUpdate, isPending }) {
+function CategoryBadge({ category }) {
+  if (!category) return <span className="text-slate-400 text-xs">—</span>;
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold bg-slate-100 text-slate-700">
+      <Tag size={10} /> {category}
+    </span>
+  );
+}
+
+function PaymentBadge({ status }) {
+  const map = {
+    pending: { bg: "bg-yellow-100", text: "text-yellow-700", label: "Pending" },
+    paid: { bg: "bg-green-100", text: "text-green-700", label: "Paid" },
+    failed: { bg: "bg-red-100", text: "text-red-700", label: "Failed" },
+    refunded: { bg: "bg-purple-100", text: "text-purple-700", label: "Refunded" },
+  };
+  const s = status ? (map[status] || { bg: "bg-gray-100", text: "text-gray-700", label: status }) : { bg: "bg-gray-100", text: "text-gray-500", label: "Not set" };
+  return <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-black uppercase border ${s.bg} ${s.text} border-transparent`}>{s.label}</span>;
+}
+
+function ShippingBadge({ status }) {
+  const map = {
+    pending: { bg: "bg-yellow-100", text: "text-yellow-700", label: "Pending" },
+    in_transit: { bg: "bg-blue-100", text: "text-blue-700", label: "In Transit" },
+    delivered: { bg: "bg-green-100", text: "text-green-700", label: "Delivered" },
+    cancelled: { bg: "bg-red-100", text: "text-red-700", label: "Cancelled" },
+  };
+  const s = status ? (map[status] || { bg: "bg-gray-100", text: "text-gray-700", label: status }) : { bg: "bg-gray-100", text: "text-gray-500", label: "Not set" };
+  return <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-black uppercase border ${s.bg} ${s.text} border-transparent`}>{s.label}</span>;
+}
+
+function PaymentSelect({ value, onChange, isPending }) {
+  return (
+    <select
+      value={value || "pending"}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={isPending}
+      className="text-xs font-bold rounded-lg px-2 py-1.5 border focus:outline-none cursor-pointer transition-colors bg-white"
+    >
+      <option value="pending">⏳ Pending</option>
+      <option value="paid">✅ Paid</option>
+      <option value="failed">❌ Failed</option>
+      <option value="refunded">🔄 Refunded</option>
+    </select>
+  );
+}
+
+function ShippingSelect({ value, onChange, isPending }) {
+  return (
+    <select
+      value={value || "pending"}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={isPending}
+      className="text-xs font-bold rounded-lg px-2 py-1.5 border focus:outline-none cursor-pointer transition-colors bg-white"
+    >
+      <option value="pending">⏳ Pending</option>
+      <option value="in_transit">🚚 In Transit</option>
+      <option value="delivered">🏠 Delivered</option>
+      <option value="cancelled">❌ Cancelled</option>
+    </select>
+  );
+}
+
+function LeadDetailModal({ lead, onClose, onStatusUpdate, onPaymentUpdate, onShippingUpdate, isStatusPending, isPaymentPending, isShippingPending }) {
   if (!lead) return null;
   const whatsappNum = lead.whatsapp || lead.phone;
   const waLink = whatsappNum
@@ -159,15 +227,15 @@ function LeadDetailModal({ lead, onClose, onUpdate, isPending }) {
         </div>
 
         <div className="p-6 space-y-5">
-          {/* Score & Status */}
-          <div className="flex items-center justify-between">
-            <ScoreBadge score={lead.score} />
-            <StatusSelect
-              lead={lead}
-              onUpdate={onUpdate}
-              isPending={isPending}
-            />
-          </div>
+           {/* Score & Status */}
+           <div className="flex items-center justify-between">
+             <ScoreBadge score={lead.score} />
+             <LeadStatusSelect
+               value={lead.status}
+               onChange={onStatusUpdate}
+               isPending={isStatusPending}
+             />
+           </div>
 
           {/* Contact Info */}
           <div className="space-y-3">
@@ -212,9 +280,20 @@ function LeadDetailModal({ lead, onClose, onUpdate, isPending }) {
                 </a>
               )}
             </div>
-          </div>
+           </div>
 
-          {/* Intent Summary */}
+           {/* Category */}
+           {lead.category && (
+             <div className="flex items-center justify-between p-4 bg-blue-50 rounded-xl border border-blue-100">
+               <div className="flex items-center gap-2">
+                 <Tag size={16} className="text-blue-600" />
+                 <span className="text-xs font-bold text-blue-800">Category</span>
+               </div>
+               <CategoryBadge category={lead.category} />
+             </div>
+           )}
+
+           {/* Intent Summary */}
           {lead.intent_summary && (
             <div className="p-4 bg-amber-50 rounded-xl border border-amber-100">
               <h4 className="text-xs font-black text-amber-700 uppercase tracking-wider mb-2 flex items-center gap-1">
@@ -236,9 +315,51 @@ function LeadDetailModal({ lead, onClose, onUpdate, isPending }) {
                 {lead.message}
               </p>
             </div>
-          )}
+           )}
 
-          {/* Actions */}
+           {/* Payment & Logistics */}
+           <div className="grid grid-cols-2 gap-4">
+             {/* Payment Status */}
+             <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+               <div className="flex items-center justify-between mb-2">
+                 <h4 className="text-xs font-black text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                   <CreditCard size={12} /> Payment
+                 </h4>
+                 <PaymentSelect
+                   value={lead.payment_status}
+                   onChange={(value) => onPaymentUpdate?.(value)}
+                   isPending={isPaymentPending}
+                 />
+               </div>
+               <div className="flex items-center gap-2">
+                 <PaymentBadge status={lead.payment_status} />
+               </div>
+             </div>
+
+             {/* Shipping Status */}
+             <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+               <div className="flex items-center justify-between mb-2">
+                 <h4 className="text-xs font-black text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                   <Truck size={12} /> Shipping
+                 </h4>
+                 <ShippingSelect
+                   value={lead.shipping_status}
+                   onChange={(value) => onShippingUpdate?.(value)}
+                   isPending={isShippingPending}
+                 />
+               </div>
+               <div className="flex items-center gap-2">
+                 <ShippingBadge status={lead.shipping_status} />
+                 {lead.shipping_tracking_number && (
+                   <span className="text-xs text-slate-500 flex items-center gap-1 ml-2">
+                     <Package size={10} /> {lead.shipping_tracking_number}
+                   </span>
+                 )}
+               </div>
+             </div>
+           </div>
+
+           {/* Actions */}
           <div className="flex gap-3 pt-2">
             {waLink && (
               <a
@@ -268,22 +389,59 @@ function LeadDetailModal({ lead, onClose, onUpdate, isPending }) {
 
 export default function DashboardPage() {
   const queryClient = useQueryClient();
+  // Connect to real-time WebSocket for live updates
+  useRealtimeLeads();
+
   const { data: leads = [], isLoading } = useQuery({
     queryKey: ["leads"],
     queryFn: fetchLeads,
+    retry: false,
   });
   const { data: analytics } = useQuery({
     queryKey: ["analytics"],
     queryFn: fetchAnalytics,
+    retry: false,
   });
 
-  const mutation = useMutation({
-    mutationFn: updateLeadStatus,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["leads"] });
-      queryClient.invalidateQueries({ queryKey: ["analytics"] });
-    },
-  });
+   const mutation = useMutation({
+     mutationFn: updateLeadStatus,
+     onSuccess: () => {
+       queryClient.invalidateQueries({ queryKey: ["leads"] });
+       queryClient.invalidateQueries({ queryKey: ["analytics"] });
+     },
+   });
+
+   const updatePaymentMutation = useMutation({
+     mutationFn: async ({ id, payment_status }) => {
+       const res = await fetch("/api/leads", {
+         method: "PATCH",
+         headers: { "Content-Type": "application/json" },
+         body: JSON.stringify({ id, payment_status }),
+       });
+       if (!res.ok) throw new Error("Failed to update payment status");
+       return res.json();
+     },
+     onSuccess: (updatedLead) => {
+       queryClient.setQueryData(['leads'], old => old.map(l => l.id === updatedLead.id ? updatedLead : l));
+       queryClient.invalidateQueries({ queryKey: ["analytics"] });
+     },
+   });
+
+   const updateShippingMutation = useMutation({
+     mutationFn: async ({ id, shipping_status }) => {
+       const res = await fetch("/api/leads", {
+         method: "PATCH",
+         headers: { "Content-Type": "application/json" },
+         body: JSON.stringify({ id, shipping_status }),
+       });
+       if (!res.ok) throw new Error("Failed to update shipping status");
+       return res.json();
+     },
+     onSuccess: (updatedLead) => {
+       queryClient.setQueryData(['leads'], old => old.map(l => l.id === updatedLead.id ? updatedLead : l));
+       queryClient.invalidateQueries({ queryKey: ["analytics"] });
+     },
+   });
 
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
@@ -313,22 +471,32 @@ export default function DashboardPage() {
       "Email",
       "Phone",
       "WhatsApp",
+      "Category",
       "Score",
+      "Keyword Score",
       "Status",
+      "Payment",
+      "Shipping",
       "Intent Summary",
       "Message",
       "Date",
+      "Source",
     ];
     const rows = leads.map((l) => [
       l.name || "",
       l.email || "",
       l.phone || "",
       l.whatsapp || "",
+      l.category || "",
       l.score || "",
+      l.keyword_score || "",
       l.status || "",
+      l.payment_status || "",
+      l.shipping_status || "",
       `"${(l.intent_summary || "").replace(/"/g, '""')}"`,
       `"${(l.message || "").replace(/"/g, '""')}"`,
       new Date(l.created_at).toLocaleDateString(),
+      l.source || "chat",
     ]);
     const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -367,17 +535,27 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
-      {selectedLead && (
-        <LeadDetailModal
-          lead={selectedLead}
-          onClose={() => setSelectedLead(null)}
-          onUpdate={(data) => {
-            mutation.mutate(data);
-            setSelectedLead((prev) => ({ ...prev, status: data.status }));
+       {selectedLead && (
+         <LeadDetailModal
+           lead={selectedLead}
+           onClose={() => setSelectedLead(null)}
+           onStatusUpdate={(status) => {
+            mutation.mutate({ id: selectedLead.id, status });
+            setSelectedLead(prev => ({ ...prev, status }));
           }}
-          isPending={mutation.isPending}
-        />
-      )}
+          onPaymentUpdate={(payment_status) => {
+            updatePaymentMutation.mutate({ id: selectedLead.id, payment_status });
+            setSelectedLead(prev => ({ ...prev, payment_status }));
+          }}
+          onShippingUpdate={(shipping_status) => {
+            updateShippingMutation.mutate({ id: selectedLead.id, shipping_status });
+            setSelectedLead(prev => ({ ...prev, shipping_status }));
+          }}
+          isStatusPending={mutation.isPending}
+          isPaymentPending={updatePaymentMutation.isPending}
+          isShippingPending={updateShippingMutation.isPending}
+         />
+       )}
 
       {/* Sidebar */}
       <aside
@@ -625,16 +803,19 @@ export default function DashboardPage() {
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
-                    <thead>
-                      <tr className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-wider">
-                        <th className="px-6 py-3">Lead</th>
-                        <th className="px-6 py-3">Contact</th>
-                        <th className="px-6 py-3">Score</th>
-                        <th className="px-6 py-3">Intent</th>
-                        <th className="px-6 py-3">Status</th>
-                        <th className="px-6 py-3">Actions</th>
-                      </tr>
-                    </thead>
+                     <thead>
+                       <tr className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-wider">
+                         <th className="px-6 py-3">Lead</th>
+                         <th className="px-6 py-3">Category</th>
+                         <th className="px-6 py-3">Contact</th>
+                         <th className="px-6 py-3">Score</th>
+                         <th className="px-6 py-3">Intent</th>
+                         <th className="px-6 py-3">Status</th>
+                         <th className="px-6 py-3">Payment</th>
+                         <th className="px-6 py-3">Shipping</th>
+                         <th className="px-6 py-3">Actions</th>
+                       </tr>
+                     </thead>
                     <tbody className="divide-y divide-slate-50">
                       {filteredLeads.map((lead) => (
                         <tr
@@ -661,10 +842,13 @@ export default function DashboardPage() {
                                   )}
                                 </p>
                               </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="space-y-1">
+                             </div>
+                           </td>
+                           <td className="px-6 py-4">
+                             <CategoryBadge category={lead.category} />
+                           </td>
+                           <td className="px-6 py-4">
+                             <div className="space-y-1">
                               {lead.email && (
                                 <div className="flex items-center gap-1.5 text-xs text-slate-600">
                                   <Mail size={11} className="text-blue-400" />
@@ -693,17 +877,23 @@ export default function DashboardPage() {
                             className="px-6 py-4"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <StatusSelect
-                              lead={lead}
-                              onUpdate={(d) => mutation.mutate(d)}
+                            <LeadStatusSelect
+                              value={lead.status}
+                              onChange={(status) => mutation.mutate({ id: lead.id, status })}
                               isPending={mutation.isPending}
-                            />
-                          </td>
-                          <td
-                            className="px-6 py-4"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <div className="flex items-center gap-2">
+                             />
+                           </td>
+                           <td className="px-6 py-4">
+                             <PaymentBadge status={lead.payment_status} />
+                           </td>
+                           <td className="px-6 py-4">
+                             <ShippingBadge status={lead.shipping_status} />
+                           </td>
+                           <td
+                             className="px-6 py-4"
+                             onClick={(e) => e.stopPropagation()}
+                           >
+                             <div className="flex items-center gap-2">
                               {(lead.whatsapp || lead.phone) && (
                                 <a
                                   href={`https://wa.me/${(lead.whatsapp || lead.phone).replace(/\D/g, "")}`}

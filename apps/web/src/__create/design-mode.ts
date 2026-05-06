@@ -3,7 +3,7 @@
  * from DOM elements.
  */
 
-import { type GetStyleInfo, initDesignMode } from '../../../../shared/design-mode';
+import { type GetStyleInfo, initDesignMode } from '../shared/design-mode';
 
 function rgbToHex(rgb: string): string {
   const match = rgb.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)$/);

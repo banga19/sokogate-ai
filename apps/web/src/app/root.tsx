@@ -1,3 +1,5 @@
+"use client";
+
 import {
   Links,
   Meta,
@@ -34,6 +36,7 @@ import { Toaster, toast } from 'sonner';
 import { useDevServerHeartbeat } from '../__create/useDevServerHeartbeat';
 import '../__create/design-mode';
 import type { Route } from './+types/root';
+import { ChatWidgetProvider } from '@/contexts/ChatWidgetContext';
 
 export const links = () => [];
 
@@ -461,7 +464,9 @@ export const ErrorBoundary = InternalErrorBoundary;
 export default function App() {
   return (
     <SessionProvider>
-      <Outlet />
+      <ChatWidgetProvider>
+        <Outlet />
+      </ChatWidgetProvider>
     </SessionProvider>
   );
 }

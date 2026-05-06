@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   Phone,
 } from "lucide-react";
+import { useChatWidget } from "@/contexts/ChatWidgetContext";
 
 const QUICK_REPLIES = [
   "I want to source electronics in bulk",
@@ -21,7 +22,7 @@ const QUICK_REPLIES = [
 ];
 
 export default function ChatWidget({ settings = {} }) {
-  const [isOpen, setIsOpen] = useState(false);
+  const { isOpen, openChat, closeChat, toggleChat } = useChatWidget();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -45,6 +46,17 @@ export default function ChatWidget({ settings = {} }) {
     ]);
   }, [businessName]);
 
+  // Silent error logger - don't let failed chats break the UI
+  useEffect(() => {
+    const handleError = (event) => {
+      if (event?.detail === 'unhandledrejection') {
+        console.warn('Chat API unavailable — using demo mode');
+      }
+    };
+    window.addEventListener('unhandledrejection', handleError);
+    return () => window.removeEventListener('unhandledrejection', handleError);
+  }, []);
+
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -54,6 +66,13 @@ export default function ChatWidget({ settings = {} }) {
   useEffect(() => {
     if (isOpen && inputRef.current) {
       setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  }, [isOpen]);
+
+  // Hide notification when chat opens
+  useEffect(() => {
+    if (isOpen) {
+      setShowNotification(false);
     }
   }, [isOpen]);
 
@@ -140,7 +159,7 @@ export default function ChatWidget({ settings = {} }) {
               </div>
             </div>
             <button
-              onClick={() => setIsOpen(false)}
+              onClick={closeChat}
               className="hover:bg-white/20 p-1.5 rounded-lg transition-colors"
             >
               <X size={20} />
@@ -342,7 +361,7 @@ export default function ChatWidget({ settings = {} }) {
       {/* Toggle Button */}
       <button
         onClick={() => {
-          setIsOpen(!isOpen);
+          toggleChat();
           setShowNotification(false);
         }}
         className="w-16 h-16 rounded-full shadow-2xl flex items-center justify-center text-white transition-all hover:scale-110 active:scale-95 relative"

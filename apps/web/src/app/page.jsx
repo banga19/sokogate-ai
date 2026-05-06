@@ -1,3 +1,5 @@
+"use client";
+
 import React from "react";
 import {
   ArrowRight,
@@ -20,10 +22,19 @@ import {
 } from "lucide-react";
 import ChatWidget from "../components/ChatWidget";
 import { useQuery } from "@tanstack/react-query";
+import { useChatWidget } from "@/contexts/ChatWidgetContext";
 
 const fetchSettings = async () => {
   const res = await fetch("/api/settings");
-  if (!res.ok) throw new Error("Failed to fetch settings");
+  if (!res.ok) {
+    return {
+      business_name: "Sokogate AI",
+      business_description: "Africa's #1 B2B Sourcing AI — Turn B2B Inquiries Into Qualified Leads 24/7 Automatically",
+      ai_goal: "Qualify buyers, capture WhatsApp contacts, score intent, and grow your Africa-to-world trade pipeline without lifting a finger",
+      primary_color: "#1E3A8A",
+      secondary_color: "#EF4444",
+    };
+  }
   return res.json();
 };
 
@@ -42,7 +53,10 @@ export default function LandingPage() {
   const { data: settings = {} } = useQuery({
     queryKey: ["settings"],
     queryFn: fetchSettings,
+    retry: false,
   });
+
+  const { openChat } = useChatWidget();
 
   const primaryColor = settings.primary_color || "#1E3A8A";
   const secondaryColor = settings.secondary_color || "#EF4444";
@@ -130,17 +144,12 @@ export default function LandingPage() {
               >
                 Launch Dashboard <ArrowRight size={18} />
               </a>
-              <button
-                onClick={() =>
-                  document
-                    .querySelector(".fixed.bottom-6")
-                    ?.querySelector("button")
-                    ?.click()
-                }
-                className="px-8 py-4 rounded-2xl bg-white border-2 border-slate-200 text-slate-700 font-bold text-base hover:bg-slate-50 transition-all flex items-center justify-center gap-2"
-              >
-                <MessageSquare size={18} /> Try AI Demo
-              </button>
+                <button
+                  onClick={openChat}
+                  className="px-8 py-4 rounded-2xl bg-white border-2 border-slate-200 text-slate-700 font-bold text-base hover:bg-slate-50 transition-all flex items-center justify-center gap-2"
+                >
+                  <MessageSquare size={18} /> Try AI Demo
+                </button>
             </div>
 
             {/* Trust Badges */}

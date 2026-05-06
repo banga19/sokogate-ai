@@ -6,7 +6,7 @@ import { authHandler, initAuthConfig } from '@hono/auth-js';
 import { Pool, neonConfig } from '@neondatabase/serverless';
 import { hash, verify } from 'argon2';
 import { Hono } from 'hono';
-import { contextStorage, getContext } from 'hono/context-storage';
+import { contextStorage } from 'hono/context-storage';
 import { cors } from 'hono/cors';
 import { proxy } from 'hono/proxy';
 import { bodyLimit } from 'hono/body-limit';
@@ -18,13 +18,16 @@ import NeonAdapter from './adapter';
 import { getHTMLForErrorPage } from './get-html-for-error-page';
 import { isAuthAction } from './is-auth-action';
 import { API_BASENAME, api } from './route-builder';
+import { serverEvents } from '../src/server/pubsub';
+import { initializeWebSocket } from '../src/server/websocket';
+
+// Attach WebSocket constructor to Neon for database websockets
 neonConfig.webSocketConstructor = ws;
 
 const als = new AsyncLocalStorage<{ requestId: string }>();
 
 for (const method of ['log', 'info', 'warn', 'error', 'debug'] as const) {
   const original = nodeConsole[method].bind(console);
-
   console[method] = (...args: unknown[]) => {
     const requestId = als.getStore()?.requestId;
     if (requestId) {
@@ -72,11 +75,12 @@ if (process.env.CORS_ORIGINS) {
     })
   );
 }
+
 for (const method of ['post', 'put', 'patch'] as const) {
   app[method](
     '*',
     bodyLimit({
-      maxSize: 4.5 * 1024 * 1024, // 4.5mb to match vercel limit
+      maxSize: 4.5 * 1024 * 1024,
       onError: (c) => {
         return c.json({ error: 'Body size limit exceeded' }, 413);
       },
@@ -94,9 +98,7 @@ if (process.env.AUTH_SECRET) {
         signOut: '/account/logout',
       },
       skipCSRFCheck,
-      session: {
-        strategy: 'jwt',
-      },
+      session: { strategy: 'jwt' },
       callbacks: {
         session({ session, token }) {
           if (token.sub) {
@@ -106,28 +108,11 @@ if (process.env.AUTH_SECRET) {
         },
       },
       cookies: {
-        csrfToken: {
-          options: {
-            secure: true,
-            sameSite: 'none',
-          },
-        },
-        sessionToken: {
-          options: {
-            secure: true,
-            sameSite: 'none',
-          },
-        },
-        callbackUrl: {
-          options: {
-            secure: true,
-            sameSite: 'none',
-          },
-        },
+        csrfToken: { options: { secure: true, sameSite: 'none' } },
+        sessionToken: { options: { secure: true, sameSite: 'none' } },
+        callbackUrl: { options: { secure: true, sameSite: 'none' } },
       },
       providers: [
-        // Dev-only provider for simulated social sign-in (Google, Facebook, etc.)
-        // Creates or finds a user by email without requiring a password.
         ...(process.env.NEXT_PUBLIC_CREATE_ENV === 'DEVELOPMENT'
           ? [
               Credentials({
@@ -150,20 +135,20 @@ if (process.env.AUTH_SECRET) {
                     typeof provider === 'string' && allowedProviders.has(provider.toLowerCase())
                       ? provider.toLowerCase()
                       : 'google';
+
                   const newUser = await adapter.createUser({
                     emailVerified: null,
                     email,
-                    name:
-                      typeof name === 'string' && name.length > 0
-                        ? name
-                        : undefined,
+                    name: typeof name === 'string' && name.length > 0 ? name : undefined,
                   });
+
                   await adapter.linkAccount({
                     type: 'oauth',
                     userId: newUser.id,
                     provider: providerName,
                     providerAccountId: `dev-${newUser.id}`,
                   });
+
                   return newUser;
                 },
               }),
@@ -173,43 +158,26 @@ if (process.env.AUTH_SECRET) {
           id: 'credentials-signin',
           name: 'Credentials Sign in',
           credentials: {
-            email: {
-              label: 'Email',
-              type: 'email',
-            },
-            password: {
-              label: 'Password',
-              type: 'password',
-            },
+            email: { label: 'Email', type: 'email' },
+            password: { label: 'Password', type: 'password' },
           },
           authorize: async (credentials) => {
             const { email, password } = credentials;
-            if (!email || !password) {
-              return null;
-            }
-            if (typeof email !== 'string' || typeof password !== 'string') {
-              return null;
-            }
+            if (!email || !password) return null;
+            if (typeof email !== 'string' || typeof password !== 'string') return null;
 
-            // logic to verify if user exists
             const user = await adapter.getUserByEmail(email);
-            if (!user) {
-              return null;
-            }
+            if (!user) return null;
+
             const matchingAccount = user.accounts.find(
               (account) => account.provider === 'credentials'
             );
             const accountPassword = matchingAccount?.password;
-            if (!accountPassword) {
-              return null;
-            }
+            if (!accountPassword) return null;
 
             const isValid = await verify(accountPassword, password);
-            if (!isValid) {
-              return null;
-            }
+            if (!isValid) return null;
 
-            // return user object with the their profile data
             return user;
           },
         }),
@@ -217,27 +185,16 @@ if (process.env.AUTH_SECRET) {
           id: 'credentials-signup',
           name: 'Credentials Sign up',
           credentials: {
-            email: {
-              label: 'Email',
-              type: 'email',
-            },
-            password: {
-              label: 'Password',
-              type: 'password',
-            },
+            email: { label: 'Email', type: 'email' },
+            password: { label: 'Password', type: 'password' },
             name: { label: 'Name', type: 'text' },
             image: { label: 'Image', type: 'text', required: false },
           },
           authorize: async (credentials) => {
             const { email, password, name, image } = credentials;
-            if (!email || !password) {
-              return null;
-            }
-            if (typeof email !== 'string' || typeof password !== 'string') {
-              return null;
-            }
+            if (!email || !password) return null;
+            if (typeof email !== 'string' || typeof password !== 'string') return null;
 
-            // logic to verify if user exists
             const user = await adapter.getUserByEmail(email);
             if (!user) {
               const newUser = await adapter.createUser({
@@ -246,15 +203,15 @@ if (process.env.AUTH_SECRET) {
                 name: typeof name === 'string' && name.length > 0 ? name : undefined,
                 image: typeof image === 'string' && image.length > 0 ? image : undefined,
               });
+
               await adapter.linkAccount({
-                extraData: {
-                  password: await hash(password),
-                },
+                extraData: { password: await hash(password) },
                 type: 'credentials',
                 userId: newUser.id,
                 providerAccountId: newUser.id,
                 provider: 'credentials',
               });
+
               return newUser;
             }
             return null;
@@ -264,6 +221,7 @@ if (process.env.AUTH_SECRET) {
     }))
   );
 }
+
 app.all('/integrations/:path{.+}', async (c, next) => {
   const queryParams = c.req.query();
   const url = `${process.env.NEXT_PUBLIC_CREATE_BASE_URL ?? 'https://www.create.xyz'}/integrations/${c.req.param('path')}${Object.keys(queryParams).length > 0 ? `?${new URLSearchParams(queryParams).toString()}` : ''}`;
@@ -271,8 +229,6 @@ app.all('/integrations/:path{.+}', async (c, next) => {
   return proxy(url, {
     method: c.req.method,
     body: c.req.raw.body ?? null,
-    // @ts-expect-error -- duplex is accepted by the runtime even though the
-    // type declarations don't include it; required for streaming integrations
     duplex: 'half',
     redirect: 'manual',
     headers: {
@@ -291,9 +247,16 @@ app.use('/api/auth/*', async (c, next) => {
   }
   return next();
 });
+
 app.route(API_BASENAME, api);
 
-export default await createHonoServer({
+// Create the HTTP server
+const server = await createHonoServer({
   app,
   defaultLogger: false,
 });
+
+// Initialize WebSocket server on the same port
+initializeWebSocket(server as any);
+
+export default server;

@@ -15,7 +15,15 @@ import { toast, Toaster } from "sonner";
 
 const fetchSettings = async () => {
   const res = await fetch("/api/settings");
-  if (!res.ok) throw new Error("Failed to fetch settings");
+  if (!res.ok) {
+    return {
+      business_name: "Sokogate",
+      business_description: "Africa's premier B2B wholesale marketplace connecting African wholesalers to global buyers.",
+      ai_goal: "Capture leads by answering sourcing questions and collecting contact info.",
+      primary_color: "#1E3A8A",
+      secondary_color: "#EF4444",
+    };
+  }
   return res.json();
 };
 
@@ -31,9 +39,10 @@ const updateSettings = async (settings) => {
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
-  const { data: initialSettings, isLoading } = useQuery({
+  const { data: initialSettings, isLoading, error } = useQuery({
     queryKey: ["settings"],
     queryFn: fetchSettings,
+    retry: false,
   });
 
   const [formData, setFormData] = useState({
