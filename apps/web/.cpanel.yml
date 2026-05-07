@@ -1,0 +1,30 @@
+# Node.js App Configuration for cPanel
+# Place this in your app root (where package.json lives)
+
+# Application settings
+application:
+  root: /home2/ultimotr/sokogate-ai.ultimotradingltd.co.ke/apps/web
+  startup_file: build/server/index.js
+  environment: production
+  node_version: "20"
+
+# Environment variables (set via cPanel UI)
+environment:
+  NODE_ENV: production
+  PORT: 3000
+  # Set these in cPanel UI:
+  # AUTH_SECRET: (generate a secure random string)
+  # DATABASE_URL: postgresql://...
+  # NEXT_PUBLIC_APP_URL: https://sokogate-ai.ultimotradingltd.co.ke
+  # NEXT_PUBLIC_CREATE_BASE_URL: https://www.create.xyz
+  # NEXT_PUBLIC_CREATE_HOST: sokogate-ai.ultimotradingltd.co.ke
+  # CORS_ORIGINS: https://sokogate-ai.ultimotradingltd.co.ke
+
+# NPM settings
+npm:
+  production: true
+  install_flags: "--no-audit --no-fund"
+
+# Post-deploy command
+post_deploy:
+  - npm run build
