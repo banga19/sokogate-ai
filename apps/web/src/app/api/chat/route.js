@@ -1,4 +1,5 @@
 import sql from "@/app/api/utils/sql";
+import { queryProducts } from "@/app/api/utils/productSql";
 import { scoreLeadFromText } from "@/utils/leadScoring";
 import { serverEvents } from "@/server/pubsub";
 import OpenAI from "openai";
@@ -240,6 +241,79 @@ function extractContactFromText(userText) {
   return { email, phone, whatsapp };
 }
 
+async function fetchRelevantProducts(userText, limit = 5) {
+  try {
+    const categoryMatch = detectCategory(userText);
+
+    // Fetch a reasonable batch of recent active products, optionally filtered by category
+    let whereClause = "is_active = true";
+    const params = [];
+
+    if (categoryMatch && categoryMatch !== "Other") {
+      whereClause += ` AND category = $${params.length + 1}`;
+      params.push(categoryMatch);
+    }
+
+    const query = `
+      SELECT * FROM products
+      WHERE ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT $${params.length + 1}
+    `;
+    params.push(30); // fetch up to 30 candidates
+
+    const products = await queryProducts(query, params);
+
+    // Score products by keyword relevance
+    const keywords = extractKeywords(userText);
+    if (keywords.length > 0) {
+      const scored = products.map(p => {
+        const searchable = `${p.name || ''} ${p.description || ''} ${p.category || ''}`.toLowerCase();
+        const matches = keywords.filter(k => searchable.includes(k)).length;
+        return { product: p, score: matches };
+      })
+      .filter(item => item.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+      .map(item => item.product);
+
+      if (scored.length > 0) return scored;
+    }
+
+    // Fallback: return most recent products
+    return products.slice(0, limit);
+  } catch (error) {
+    console.error("Error fetching products:", error);
+    return [];
+  }
+}
+
+function extractKeywords(text) {
+  // Extract meaningful product-related keywords (simple heuristic)
+  const words = text.toLowerCase().split(/\s+/);
+  const stopWords = new Set(["i", "need", "want", "looking", "for", "the", "a", "an", "is", "are", "was", "were", "be", "been", "have", "has", "had", "do", "does", "did", "will", "would", "could", "should", "may", "might", "can", "must", "shall", "to", "of", "in", "on", "at", "by", "with", "and", "or", "but", "if", "then", "so", "as", "when", "where", "why", "how", "all", "any", "some", "most", "many", "few", "such", "no", "not", "only", "also", "very", "just", "really", "please", "thanks", "thank", "you", "your", "my", "our", "their", "his", "her", "its"]);
+  const keywords = words.filter(w => w.length > 3 && !stopWords.has(w));
+  // Deduplicate and limit
+  return [...new Set(keywords)].slice(0, 5);
+}
+
+function formatProductContext(products) {
+  if (!products || products.length === 0) return "";
+
+  const lines = products.map(p => {
+    const specs = p.specifications ? JSON.stringify(p.specifications) : "";
+    return `Product: ${p.name}
+Category: ${p.category || "N/A"}
+Price: ${p.currency || "USD"} ${p.price ? p.price.toFixed(2) : "Contact for price"}
+Stock: ${p.stock_quantity > 0 ? p.stock_quantity + " units available" : "Out of stock"}
+SKU: ${p.sku || "N/A"}
+${p.description ? `Description: ${p.description}` : ""}
+`;
+  });
+
+  return `\n\nREAL-TIME PRODUCT DATA FROM SOKOGATE DATABASE:\n${lines.join("---\n")}\n\n`;
+}
+
 function looksLikeLeadCaptured({ messages }) {
   // If user already gave name + any contact method (phone/whatsapp/email) in the messages
   // we still rely on model for final LEAD_DATA, but this helps us reduce back-and-forth.
@@ -283,7 +357,7 @@ export async function POST(request) {
       return Response.json({ content: deterministicContent, leadCaptured: false });
     }
 
-    // 1. Get business context
+    // 1. Get business context + product data (if relevant)
     const settingsResult =
       await sql`SELECT * FROM business_settings ORDER BY id DESC LIMIT 1`;
     const settings = settingsResult[0] || {
@@ -293,6 +367,16 @@ export async function POST(request) {
       ai_goal:
         "Capture leads by answering sourcing questions and collecting contact info.",
     };
+
+    // Fetch relevant products based on user inquiry
+    let productContext = "";
+    let relevantProducts = [];
+    if (latestUserText && latestUserText.length > 5) {
+      relevantProducts = await fetchRelevantProducts(latestUserText);
+      if (relevantProducts.length > 0) {
+        productContext = formatProductContext(relevantProducts);
+      }
+    }
 
     const systemPrompt = `You are the Sokogate AI Sales Agent — Africa's #1 B2B Sourcing AI.
 
@@ -304,7 +388,18 @@ Sokogate is the AI-powered sales agent built for Sokogate wholesalers. We help y
 - Qualify buyers conversationally
 - Capture WhatsApp contacts (Africa's #1 business communication)
 - Score intent automatically
+- Access real-time product inventory and pricing from our database
 - Grow your Africa-to-world trade pipeline — hands-free
+
+PRODUCT DATA ACCESS:
+You have access to Sokogate's live product database. When users ask about specific products or categories, use the provided REAL-TIME PRODUCT DATA (if available) to give accurate, up-to-date information on:
+- Product names and descriptions
+- Current pricing (in the listed currency)
+- Availability and stock levels
+- SKU identifiers
+- Product specifications
+
+If real-time product data is provided, reference specific products by name and give exact details. If no product data is available, answer generally and encourage the user to specify what they need so you can look it up.
 
 PRODUCT CATEGORIES:
 Sokogate handles sourcing across all major categories:
@@ -342,10 +437,14 @@ DON'T:
 - Ask for contact info again if already provided
 - Break the conversational flow`;
 
-    const chatMessages = [
-      { role: "system", content: systemPrompt },
-      ...safeMessages,
-    ];
+    // Build chat messages with product context if available
+    const contextMessage = productContext
+      ? { role: "system", content: `IMPORTANT CONTEXT FOR THIS CONVERSATION:\n${productContext}\nUse the above product data to provide accurate pricing, availability, and specifications. If the user mentions products not in this data, say you'll check the database for them.` }
+      : null;
+
+    const chatMessages = contextMessage
+      ? [ { role: "system", content: systemPrompt }, contextMessage, ...safeMessages ]
+      : [ { role: "system", content: systemPrompt }, ...safeMessages ];
 
     let aiContent;
     try {
@@ -353,10 +452,7 @@ DON'T:
 
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: systemPrompt },
-          ...safeMessages,
-        ],
+        messages: chatMessages,
         max_tokens: 1024,
         temperature: 0.7,
       });

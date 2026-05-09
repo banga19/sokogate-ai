@@ -45,7 +45,28 @@ CREATE TABLE IF NOT EXISTS leads (
 );
 
 -- ============================================
--- 3. INDEXES FOR PERFORMANCE
+-- 3. PRODUCTS TABLE
+-- Stores product catalog for real-time AI retrieval
+-- ============================================
+CREATE TABLE IF NOT EXISTS products (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(200) NOT NULL,
+  description TEXT,
+  category VARCHAR(100),
+  price DECIMAL(10,2),
+  currency VARCHAR(3) DEFAULT 'USD',
+  stock_quantity INT DEFAULT 0,
+  sku VARCHAR(100) UNIQUE,
+  images TEXT[],
+  specifications JSONB,
+  supplier_id INT,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- ============================================
+-- 4. INDEXES FOR PERFORMANCE
 -- ============================================
 CREATE INDEX IF NOT EXISTS idx_leads_created_at ON leads(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_leads_score ON leads(score);
@@ -55,6 +76,11 @@ CREATE INDEX IF NOT EXISTS idx_leads_payment_status ON leads(payment_status);
 CREATE INDEX IF NOT EXISTS idx_leads_shipping_status ON leads(shipping_status);
 CREATE INDEX IF NOT EXISTS idx_leads_source ON leads(source);
 CREATE INDEX IF NOT EXISTS idx_leads_whatsapp ON leads(whatsapp) WHERE whatsapp IS NOT NULL;
+
+-- Product indexes
+CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
+CREATE INDEX IF NOT EXISTS idx_products_is_active ON products(is_active);
+CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
 
 -- ============================================
 -- 4. SAMPLE DATA
@@ -82,6 +108,20 @@ INSERT INTO leads (name, email, phone, whatsapp, message, score, intent_summary,
   ('Lisa M.', 'lisa@retail.shop', '+254722000008', NULL, 'What payment methods do you accept for international orders?', 'Low', 'Inquiring about payment options. Not yet specified product interest.', 'Other', 'Low', 'New', 'pending', 'pending', NOW() - INTERVAL '18 hours')
 ON CONFLICT DO NOTHING;
 
+-- Sample products for AI agent product lookup feature
+INSERT INTO products (name, description, category, price, currency, stock_quantity, sku, specifications, is_active) VALUES
+  ('iPhone 15 Pro 256GB', 'Latest Apple smartphone with A17 Pro chip, titanium design, 48MP camera system', 'Electronics', 1299.00, 'USD', 50, 'IPH15P-256-BLK', '{"color":"Black","storage":"256GB","warranty":"1 year"}', true),
+  ('Samsung Galaxy S24 Ultra', 'Flagship Android phone with S Pen, 200MP camera, Snapdragon 8 Gen 3', 'Electronics', 1199.00, 'USD', 35, 'SAMS24U-512-BLK', '{"color":"Black","storage":"512GB","warranty":"1 year"}', true),
+  ('Cotton Polo Shirts (Bulk)', 'Premium cotton polo shirts, ideal for corporate uniforms and wholesale orders', 'Apparel & Fabrics', 12.50, 'USD', 1000, 'POLO-COT-001', '{"sizes":"S-XXL","material":"100% Cotton","moq":"100 units"}', true),
+  ('Denim Jeans - Straight Cut', 'High-quality denim jeans for men and women, available in bulk wholesale', 'Apparel & Fabrics', 18.00, 'USD', 500, 'JEANS-DEN-002', '{"sizes":"28-42","material":"Denim","moq":"50 units"}', true),
+  ('Organic Green Coffee Beans', 'Premium Arabica coffee beans from Kenya, organic certified, fair trade', 'Agriculture & Food', 4.50, 'USD', 2000, 'COFF-ORG-001', '{"origin":"Kenya","type":"Arabica","certification":"Organic/Fair Trade"}', true),
+  ('Diesel Generator 50kVA', 'Industrial-grade diesel generator for backup power, 50kVA capacity', 'Machinery & Parts', 8500.00, 'USD', 5, 'GEN-50KVA', '{"power":"50kVA","fuel":"Diesel","coverage":"Warranty included"}', true),
+  ('Toyota Corolla Spare Parts Kit', 'Complete maintenance kit for Toyota Corolla 2018-2023 models', 'Auto Parts', 289.99, 'USD', 25, 'TOY-COR-KIT', '{"compatibility":"Toyota Corolla 2018-2023","contents":"Full kit"}', true),
+  ('Organic Shea Butter Cream', 'Natural skincare cream with 100% organic shea butter, moisturizing', 'Health & Beauty', 15.99, 'USD', 200, 'SHEA-CREAM-01', '{"size":"500ml","ingredients":"100% Shea Butter","organic":true}', true),
+  ('Cement (50kg Bags)', 'Portland cement grade 42.5N, 50kg bags, suitable for construction', 'Home & Construction', 8.50, 'USD', 5000, 'CEM-50KG', '{"grade":"42.5N","weight":"50kg","type":"Portland"}', true),
+  ('Solar Street Lights 100W', 'Solar-powered LED street lights, 100W, with remote control and motion sensor', 'Home & Construction', 120.00, 'USD', 30, 'SOLAR-100W', '{"power":"100W","features":"Motion sensor, remote","battery":"12V"}', true)
+ON CONFLICT DO NOTHING;
+
 -- ============================================
 -- 5. TRIGGERS FOR UPDATED_AT
 -- ============================================
@@ -99,6 +139,10 @@ CREATE TRIGGER update_business_settings_updated_at
 
 CREATE TRIGGER update_leads_updated_at
   BEFORE UPDATE ON leads
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_products_updated_at
+  BEFORE UPDATE ON products
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================
@@ -128,6 +172,7 @@ ORDER BY date DESC;
 -- VERIFICATION
 -- ============================================
 -- After running this script, verify:
--- \dt -- should show business_settings, leads
+-- \dt -- should show business_settings, leads, products
 -- SELECT COUNT(*) FROM leads; -- should show 8
+-- SELECT COUNT(*) FROM products; -- should show 0 initially
 -- SELECT * FROM business_settings;
