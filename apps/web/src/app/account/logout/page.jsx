@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useNavigate } from "react-router";
-import { useAuth } from "@/utils/useAuth";
+import useAuth from "@/utils/useAuth";
 import { Loader2 } from "lucide-react";
 
 export default function SignOutPage() {

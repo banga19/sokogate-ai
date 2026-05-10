@@ -1,10 +1,9 @@
 /**
  * Server-side event pub/sub for real-time updates.
- * Uses Node.js EventEmitter to broadcast events to WebSocket clients.
+ * Manages WebSocket clients and broadcasts events.
  */
 
 import { EventEmitter } from 'node:events';
-import { broadcastToClients } from './websocket';
 
 type LeadEvent = {
   type: 'newLead' | 'updateLead' | 'deleteLead';
@@ -19,26 +18,39 @@ type AnalyticsEvent = {
 type ServerEvent = LeadEvent | AnalyticsEvent;
 
 class ServerEvents extends EventEmitter {
-  constructor() {
-    super();
+  // Set of connected WebSocket clients
+  clients: Set<any> = new Set();
+
+  addClient(ws: any) {
+    this.clients.add(ws);
+  }
+
+  removeClient(ws: any) {
+    this.clients.delete(ws);
+  }
+
+  broadcast(payload: string) {
+    this.clients.forEach((client) => {
+      if (client.readyState === 1) {
+        // WebSocket.OPEN === 1
+        client.send(payload);
+      }
+    });
   }
 
   emitLead(lead: Record<string, unknown>) {
     this.emit('newLead' as const, lead);
-    // Broadcast immediately
-    broadcastToClients(JSON.stringify({ type: 'newLead', lead }));
+    this.broadcast(JSON.stringify({ type: 'newLead', lead }));
   }
 
   emitLeadUpdate(lead: Record<string, unknown>) {
     this.emit('updateLead' as const, lead);
-    // Broadcast immediately
-    broadcastToClients(JSON.stringify({ type: 'updateLead', lead }));
+    this.broadcast(JSON.stringify({ type: 'updateLead', lead }));
   }
 
   emitAnalytics(analytics: Record<string, unknown>) {
     this.emit('analyticsUpdate' as const, analytics);
-    // Broadcast immediately
-    broadcastToClients(JSON.stringify({ type: 'analyticsUpdate', analytics }));
+    this.broadcast(JSON.stringify({ type: 'analyticsUpdate', analytics }));
   }
 }
 

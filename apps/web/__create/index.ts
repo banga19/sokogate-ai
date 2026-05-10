@@ -24,7 +24,6 @@ import { getHTMLForErrorPage } from './get-html-for-error-page';
 import { isAuthAction } from './is-auth-action';
 import { API_BASENAME, api, routesReady } from './route-builder';
 import { serverEvents } from '../src/server/pubsub';
-import { initializeWebSocket } from '../src/server/websocket';
 
 // Attach WebSocket constructor to Neon for database websockets
 neonConfig.webSocketConstructor = ws;
@@ -308,14 +307,36 @@ const init = async () => {
 	// Mount the API routes
 	app.route(API_BASENAME, api);
 
-	// Create the HTTP server
+	// Create the HTTP server with WebSocket support
 	const server = await createHonoServer({
 		app,
 		defaultLogger: false,
+		useWebSocket: true,
+		configure: (app, { upgradeWebSocket }) => {
+			app.get(
+				'/api/ws',
+				upgradeWebSocket((c) => ({
+					onOpen(_, ws) {
+						console.log('[WebSocket] Client connected from:', c.req.socket?.remoteAddress || c.req.header('x-forwarded-for'));
+						// Send welcome message
+						ws.send(JSON.stringify({ type: 'connected', message: 'WebSocket connected' }));
+						// Register client for broadcasts
+						serverEvents.addClient(ws);
+					},
+					onClose(_, ws) {
+						console.log('[WebSocket] Client disconnected');
+						serverEvents.removeClient(ws);
+					},
+					onMessage(event, ws) {
+						// Optional: handle client messages if needed
+					},
+					onError(err, ws) {
+						console.error('[WebSocket] error:', err);
+					},
+				})),
+			);
+		},
 	});
-
-	// Initialize WebSocket server on the same port
-	initializeWebSocket(server as any);
 
 	return server;
 };

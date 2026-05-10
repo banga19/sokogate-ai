@@ -2,10 +2,10 @@
 
 import React from "react";
 import { Navigate, useLocation } from "react-router";
-import { useSession } from "@auth/create/react";
+import useUser from "@/contexts/AuthContext";
 
 export default function ProtectedRoute({ children }) {
-  const { data: session, status } = useSession();
+  const { status } = useUser();
   const location = useLocation();
 
   if (status === "loading") {
@@ -19,10 +19,9 @@ export default function ProtectedRoute({ children }) {
     );
   }
 
-  if (!session) {
+  if (status === "unauthenticated") {
     return <Navigate to="/account/signin" state={{ from: location }} replace />;
   }
 
   return children;
 }
-

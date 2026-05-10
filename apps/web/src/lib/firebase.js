@@ -13,6 +13,15 @@ let _app = null;
 let _auth = null;
 let _googleProvider = null;
 
+const defaultFirebaseConfig = {
+  apiKey: "AIzaSyDdUoYg7bbl3O6mH2z9mwFCXbWKpSKndas",
+  authDomain: "ultimo-trading-c-1747477956665.firebaseapp.com",
+  projectId: "ultimo-trading-c-1747477956665",
+  storageBucket: "ultimo-trading-c-1747477956665.firebasestorage.app",
+  messagingSenderId: "1087620624424",
+  appId: "1:1087620624424:web:eb15c0fe778d61206f051d"
+};
+
 function getFirebase() {
   if (typeof window === "undefined") {
     return { app: null, auth: null, googleProvider: null };
@@ -20,12 +29,12 @@ function getFirebase() {
   
   if (!_app) {
     const firebaseConfig = {
-      apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "YOUR_API_KEY",
-      authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "sokogate-ai.firebaseapp.com",
-      projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "sokogate-ai",
-      storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "sokogate-ai.appspot.com",
-      messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "123456789",
-      appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:123456789:web:abcdef"
+      apiKey: import.meta.env.VITE_FIREBASE_API_KEY || defaultFirebaseConfig.apiKey,
+      authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || defaultFirebaseConfig.authDomain,
+      projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || defaultFirebaseConfig.projectId,
+      storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || defaultFirebaseConfig.storageBucket,
+      messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || defaultFirebaseConfig.messagingSenderId,
+      appId: import.meta.env.VITE_FIREBASE_APP_ID || defaultFirebaseConfig.appId
     };
     
     _app = initializeApp(firebaseConfig);

@@ -2,8 +2,8 @@
 
 import React from "react";
 import { Link, useNavigate } from "react-router";
-import { useUser } from "@/utils/useUser";
-import { useAuth } from "@/utils/useAuth";
+import { useUser } from "@/contexts/AuthContext";
+import useAuth from "@/utils/useAuth";
 import {
   User,
   Mail,

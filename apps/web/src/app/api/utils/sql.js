@@ -1,11 +1,15 @@
-import { Pool } from 'pg';
+import { Pool, neonConfig } from '@neondatabase/serverless';
+import ws from 'ws';
+
+// Ensure Neon uses WebSocket constructor for serverless connections
+neonConfig.webSocketConstructor = ws;
 
 function createSqlClient(url) {
   if (!url || url.includes('<') || url.includes('>')) {
     console.warn('Invalid DATABASE_URL provided — database features will be disabled');
     return createMockSql();
   }
-  
+
   const pool = new Pool({ connectionString: url });
   
   // Create a function that handles tagged template queries

@@ -3,6 +3,8 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { Loader2, Mail, Lock, Eye, EyeOff, User, Sparkles } from "lucide-react";
+import { createUserWithEmailAndPassword, signInWithPopup } from 'firebase/auth';
+import getFirebase from '@/lib/firebase';
 
 export default function SignUpPage() {
   const navigate = useNavigate();
@@ -31,15 +33,21 @@ export default function SignUpPage() {
     setIsLoading(true);
 
     try {
-      const { signUpWithCredentials } = await import("@/lib/firebase");
-      const { user, error: authError } = await signUpWithCredentials(email, password, name);
-      if (authError) {
-        setError(authError);
-      } else if (user) {
+      const { auth } = getFirebase();
+      if (!auth) throw new Error("Firebase not initialized");
+      
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      
+      if (user) {
+        // Update profile with name
+        if (name) {
+          await user.updateProfile({ displayName: name });
+        }
         navigate("/dashboard");
       }
     } catch (err) {
-      setError("An error occurred. Please try again.");
+      setError(err.message || "Failed to create account");
     } finally {
       setIsLoading(false);
     }
@@ -47,12 +55,13 @@ export default function SignUpPage() {
 
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
+    setError("");
     try {
-      const { signInWithGoogle } = await import("@/lib/firebase");
-      const { user, error: authError } = await signInWithGoogle();
-      if (authError) {
-        setError(authError);
-      } else if (user) {
+      const { auth, googleProvider } = getFirebase();
+      if (!auth || !googleProvider) throw new Error("Firebase not initialized");
+      
+      const result = await signInWithPopup(auth, googleProvider);
+      if (result.user) {
         navigate("/dashboard");
       }
     } catch (err) {
@@ -82,7 +91,7 @@ export default function SignUpPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wider">
+              <label className="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wider">
                 Full Name
               </label>
               <div className="relative">
@@ -99,7 +108,7 @@ export default function SignUpPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wider">
+              <label className="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wider">
                 Email Address
               </label>
               <div className="relative">
@@ -116,7 +125,7 @@ export default function SignUpPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wider">
+              <label className="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wider">
                 Password
               </label>
               <div className="relative">
@@ -140,7 +149,7 @@ export default function SignUpPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-600 mb-2 uppercase tracking-wider">
+              <label className="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wider">
                 Confirm Password
               </label>
               <div className="relative">

@@ -42,8 +42,8 @@ import {
   Legend,
 } from "recharts";
 import { User, LogOut } from "lucide-react";
-import { useUser } from "@/utils/useUser";
-import { useAuth } from "@/utils/useAuth";
+import { useUser } from "@/contexts/AuthContext";
+import useAuth from "@/utils/useAuth";
 import { useRealtimeLeads } from "@/utils/useRealtimeLeads";
 
 const fetchLeads = async () => {

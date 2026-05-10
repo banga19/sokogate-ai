@@ -19,7 +19,7 @@ import {
   LogOut,
 } from "lucide-react";
 import { useChatWidget } from "@/contexts/ChatWidgetContext";
-import { useUser } from "@/utils/useUser";
+import { useUser } from "@/contexts/AuthContext";
 import useAuth from "@/utils/useAuth";
 import { Link } from "react-router";
 

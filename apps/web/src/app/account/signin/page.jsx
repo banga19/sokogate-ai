@@ -3,6 +3,8 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { Loader2, Mail, Lock, Eye, EyeOff, Sparkles } from "lucide-react";
+import { signInWithEmailAndPassword, signInWithPopup } from 'firebase/auth';
+import getFirebase from '@/lib/firebase';
 
 export default function SignInPage() {
   const navigate = useNavigate();
@@ -18,15 +20,15 @@ export default function SignInPage() {
     setIsLoading(true);
 
     try {
-      const { signInWithCredentials } = await import("@/lib/firebase");
-      const { user, error: authError } = await signInWithCredentials(email, password);
-      if (authError) {
-        setError(authError);
-      } else if (user) {
+      const { auth } = getFirebase();
+      if (!auth) throw new Error("Firebase not initialized");
+      
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      if (userCredential.user) {
         navigate("/dashboard");
       }
     } catch (err) {
-      setError("An error occurred. Please try again.");
+      setError(err.message || "Invalid email or password");
     } finally {
       setIsLoading(false);
     }
@@ -34,12 +36,13 @@ export default function SignInPage() {
 
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
+    setError("");
     try {
-      const { signInWithGoogle } = await import("@/lib/firebase");
-      const { user, error: authError } = await signInWithGoogle();
-      if (authError) {
-        setError(authError);
-      } else if (user) {
+      const { auth, googleProvider } = getFirebase();
+      if (!auth || !googleProvider) throw new Error("Firebase not initialized");
+      
+      const result = await signInWithPopup(auth, googleProvider);
+      if (result.user) {
         navigate("/dashboard");
       }
     } catch (err) {

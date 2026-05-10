@@ -7,11 +7,6 @@ type WSMessage =
   | { type: 'updateLead'; lead: Record<string, unknown> }
   | { type: 'analyticsUpdate'; analytics: Record<string, unknown> };
 
-const WS_URL = () => {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}/api/ws`;
-};
-
 export function useRealtimeLeads() {
   const queryClient = useQueryClient();
   const wsRef = useRef<WebSocket | null>(null);
@@ -19,7 +14,11 @@ export function useRealtimeLeads() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    const ws = new WebSocket(WS_URL());
+    const WS_URL =
+      (window.location.protocol === 'https:' ? 'wss:' : 'ws:') +
+      '//' + window.location.host + '/api/ws';
+
+    const ws = new WebSocket(WS_URL);
     wsRef.current = ws;
 
     ws.onopen = () => console.log('[Realtime] WebSocket connected');
