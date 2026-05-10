@@ -19,6 +19,7 @@ import {
   Heart,
   Home,
   Package,
+  LogIn,
 } from "lucide-react";
 import ChatWidget from "../components/ChatWidget";
 import { useQuery } from "@tanstack/react-query";
@@ -101,6 +102,12 @@ export default function LandingPage() {
             className="hover:text-blue-600 transition-colors"
           >
             How it Works
+          </a>
+          <a
+            href="/login"
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl hover:bg-slate-100 transition-colors"
+          >
+            <LogIn size={16} /> Sign In
           </a>
           <a
             href="/dashboard"

@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS business_settings (
 CREATE TABLE IF NOT EXISTS leads (
   id SERIAL PRIMARY KEY,
   name VARCHAR(200),
+  company VARCHAR(200),
   email VARCHAR(200),
   phone VARCHAR(50),
   whatsapp VARCHAR(50),
@@ -36,6 +37,9 @@ CREATE TABLE IF NOT EXISTS leads (
   category VARCHAR(100),
   keyword_score VARCHAR(10) CHECK (keyword_score IN ('High', 'Medium', 'Low')),
   source VARCHAR(20) DEFAULT 'chat',
+  conversation_stage VARCHAR(50) DEFAULT 'greeting' CHECK (conversation_stage IN ('greeting', 'needs_assessment', 'contact_capture', 'qualified', 'handoff_requested')),
+  handoff_requested BOOLEAN DEFAULT FALSE,
+  visitor_id VARCHAR(100),
   payment_status VARCHAR(20) DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'failed', 'refunded')),
   shipping_status VARCHAR(20) DEFAULT 'pending' CHECK (shipping_status IN ('pending', 'in_transit', 'delivered', 'cancelled')),
   shipping_tracking_number VARCHAR(100),
@@ -45,7 +49,31 @@ CREATE TABLE IF NOT EXISTS leads (
 );
 
 -- ============================================
--- 3. PRODUCTS TABLE
+-- 3. VISITORS TABLE
+-- Tracks anonymous visitors and their conversation progress
+-- ============================================
+CREATE TABLE IF NOT EXISTS visitors (
+  id SERIAL PRIMARY KEY,
+  visitor_id VARCHAR(100) UNIQUE NOT NULL,
+  name VARCHAR(200),
+  company VARCHAR(200),
+  email VARCHAR(200),
+  phone VARCHAR(50),
+  lead_id INTEGER REFERENCES leads(id) ON DELETE SET NULL,
+  conversation_stage VARCHAR(50) DEFAULT 'greeting' CHECK (conversation_stage IN ('greeting', 'needs_assessment', 'contact_capture', 'qualified', 'handoff_requested')),
+  visit_count INTEGER DEFAULT 1,
+  first_visit_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  last_seen TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_visitors_visitor_id ON visitors(visitor_id);
+CREATE INDEX IF NOT EXISTS idx_visitors_lead_id ON visitors(lead_id);
+CREATE INDEX IF NOT EXISTS idx_visitors_stage ON visitors(conversation_stage);
+CREATE INDEX IF NOT EXISTS idx_visitors_last_seen ON visitors(last_seen DESC);
+
+-- ============================================
+-- 4. PRODUCTS TABLE
 -- Stores product catalog for real-time AI retrieval
 -- ============================================
 CREATE TABLE IF NOT EXISTS products (
@@ -81,6 +109,12 @@ CREATE INDEX IF NOT EXISTS idx_leads_whatsapp ON leads(whatsapp) WHERE whatsapp 
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
 CREATE INDEX IF NOT EXISTS idx_products_is_active ON products(is_active);
 CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
+
+-- Lead indexes for new fields
+CREATE INDEX IF NOT EXISTS idx_leads_visitor_id ON leads(visitor_id) WHERE visitor_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_leads_conversation_stage ON leads(conversation_stage);
+CREATE INDEX IF NOT EXISTS idx_leads_handoff_requested ON leads(handoff_requested) WHERE handoff_requested = TRUE;
+CREATE INDEX IF NOT EXISTS idx_leads_company ON leads(company);
 
 -- ============================================
 -- 4. SAMPLE DATA
@@ -123,7 +157,56 @@ INSERT INTO products (name, description, category, price, currency, stock_quanti
 ON CONFLICT DO NOTHING;
 
 -- ============================================
--- 5. TRIGGERS FOR UPDATED_AT
+-- 5. KNOWLEDGE BASE TABLE
+-- Stores FAQs and product information updates for AI training
+-- ============================================
+CREATE TABLE IF NOT EXISTS knowledge_base (
+  id SERIAL PRIMARY KEY,
+  category VARCHAR(100) NOT NULL,
+  question TEXT,
+  answer TEXT NOT NULL,
+  tags VARCHAR(50)[],
+  priority INTEGER DEFAULT 0,
+  is_active BOOLEAN DEFAULT TRUE,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_by VARCHAR(200)
+);
+
+CREATE INDEX IF NOT EXISTS idx_kb_category ON knowledge_base(category);
+CREATE INDEX IF NOT EXISTS idx_kb_active ON knowledge_base(is_active) WHERE is_active = TRUE;
+CREATE INDEX IF NOT EXISTS idx_kb_priority ON knowledge_base(priority DESC);
+
+-- Sample knowledge base entries
+INSERT INTO knowledge_base (category, question, answer, tags, priority, updated_by) VALUES
+  ('general', 'What payment methods do you accept?', 'We accept M-Pesa, Wave, Airtel Money, MTN MoMo, Visa, and other major African & international payment options.', ARRAY['payment','methods','mpesa','wave','visa'], 10, 'system'),
+  ('general', 'How long does shipping take?', 'Air freight: 7-15 days, Sea freight: 45-75 days. Full tracking available for all shipments.', ARRAY['shipping','delivery','time','tracking'], 9, 'system'),
+  ('electronics', 'What electronics do you supply?', 'We supply smartphones, laptops, computers, TVs, cameras, electronic components, circuits, and various gadgets. Contact us with your specific needs.', ARRAY['electronics','phones','laptops','gadgets'], 8, 'system'),
+  ('apparel', 'What apparel products are available?', 'We offer wholesale clothing including T-shirts, jeans, uniforms, fabrics, textiles, and garments. MOQ as low as 50 units.', ARRAY['clothing','apparel','fabric','uniform'], 8, 'system'),
+  ('agriculture', 'What agricultural products do you handle?', 'We source fresh produce, grains, fruits, vegetables, meat, dairy, seafood, and packaged foods. Both fresh and frozen options available.', ARRAY['agriculture','food','farm','produce'], 8, 'system')
+ON CONFLICT DO NOTHING;
+
+-- ============================================
+-- 6. AI INTERACTIONS LOG
+-- Tracks conversations for continuous improvement
+-- ============================================
+CREATE TABLE IF NOT EXISTS ai_interactions (
+  id SERIAL PRIMARY KEY,
+  visitor_id VARCHAR(100),
+  lead_id INTEGER REFERENCES leads(id) ON DELETE SET NULL,
+  user_message TEXT NOT NULL,
+  ai_response TEXT NOT NULL,
+  tokens_used INTEGER DEFAULT 0,
+  response_time_ms INTEGER,
+  satisfaction_rating INTEGER CHECK (satisfaction_rating >= 1 AND satisfaction_rating <= 5),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_interactions_visitor ON ai_interactions(visitor_id);
+CREATE INDEX IF NOT EXISTS idx_ai_interactions_lead ON ai_interactions(lead_id);
+CREATE INDEX IF NOT EXISTS idx_ai_interactions_created ON ai_interactions(created_at DESC);
+
+-- ============================================
+-- 10. TRIGGERS FOR UPDATED_AT
 -- ============================================
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
@@ -141,12 +224,24 @@ CREATE TRIGGER update_leads_updated_at
   BEFORE UPDATE ON leads
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+CREATE TRIGGER update_handoff_requests_updated_at
+  BEFORE UPDATE ON handoff_requests
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 CREATE TRIGGER update_products_updated_at
   BEFORE UPDATE ON products
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+CREATE TRIGGER update_knowledge_base_updated_at
+  BEFORE UPDATE ON knowledge_base
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_visitors_updated_at
+  BEFORE UPDATE ON visitors
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- ============================================
--- 6. VIEW FOR ANALYTICS (optional convenience)
+-- 11. VIEW FOR ANALYTICS (optional convenience)
 -- ============================================
 CREATE OR REPLACE VIEW lead_analytics_daily AS
 SELECT
@@ -163,7 +258,30 @@ GROUP BY DATE(created_at)
 ORDER BY date DESC;
 
 -- ============================================
--- 7. GRANT PERMISSIONS (if using role-based access)
+-- 10. HANDOFF REQUESTS TABLE
+-- Tracks requests to speak with a human agent
+-- ============================================
+CREATE TABLE IF NOT EXISTS handoff_requests (
+  id SERIAL PRIMARY KEY,
+  lead_id INTEGER REFERENCES leads(id) ON DELETE SET NULL,
+  visitor_id VARCHAR(100),
+  reason TEXT,
+  urgency VARCHAR(20) DEFAULT 'normal' CHECK (urgency IN ('high', 'normal', 'low')),
+  status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'resolved', 'cancelled')),
+  assigned_to VARCHAR(200),
+  notes TEXT,
+  resolved_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_handoff_status ON handoff_requests(status);
+CREATE INDEX IF NOT EXISTS idx_handoff_lead ON handoff_requests(lead_id);
+CREATE INDEX IF NOT EXISTS idx_handoff_visitor ON handoff_requests(visitor_id);
+CREATE INDEX IF NOT EXISTS idx_handoff_urgency ON handoff_requests(urgency);
+
+-- ============================================
+-- 12. GRANT PERMISSIONS (if using role-based access)
 -- ============================================
 -- GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO sokogate_user;
 -- GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO sokogate_user;
@@ -172,7 +290,112 @@ ORDER BY date DESC;
 -- VERIFICATION
 -- ============================================
 -- After running this script, verify:
--- \dt -- should show business_settings, leads, products
--- SELECT COUNT(*) FROM leads; -- should show 8
--- SELECT COUNT(*) FROM products; -- should show 0 initially
+-- \dt -- should show business_settings, leads, products, knowledge_base, ai_interactions, visitors, handoff_requests
+-- SELECT COUNT(*) FROM leads;
+-- SELECT COUNT(*) FROM products;
+-- SELECT COUNT(*) FROM knowledge_base;
+-- SELECT COUNT(*) FROM visitors;
 -- SELECT * FROM business_settings;
+
+-- ============================================
+-- 14. UPGRADE INSTRUCTIONS (for existing installations)
+-- ============================================
+-- If you already have the old schema, run these ALTER statements to add new columns/tables:
+
+-- Add new columns to leads table (if not exist)
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS company VARCHAR(200);
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS conversation_stage VARCHAR(50) DEFAULT 'greeting' CHECK (conversation_stage IN ('greeting', 'needs_assessment', 'contact_capture', 'qualified', 'handoff_requested'));
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS handoff_requested BOOLEAN DEFAULT FALSE;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS visitor_id VARCHAR(100);
+CREATE INDEX IF NOT EXISTS idx_leads_visitor_id ON leads(visitor_id);
+CREATE INDEX IF NOT EXISTS idx_leads_conversation_stage ON leads(conversation_stage);
+CREATE INDEX IF NOT EXISTS idx_leads_handoff_requested ON leads(handoff_requested) WHERE handoff_requested = TRUE;
+CREATE INDEX IF NOT EXISTS idx_leads_company ON leads(company);
+
+-- Create visitors table if not exists
+CREATE TABLE IF NOT EXISTS visitors (
+  id SERIAL PRIMARY KEY,
+  visitor_id VARCHAR(100) UNIQUE NOT NULL,
+  name VARCHAR(200),
+  company VARCHAR(200),
+  email VARCHAR(200),
+  phone VARCHAR(50),
+  lead_id INTEGER REFERENCES leads(id) ON DELETE SET NULL,
+  conversation_stage VARCHAR(50) DEFAULT 'greeting',
+  visit_count INTEGER DEFAULT 1,
+  first_visit_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  last_seen TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_visitors_visitor_id ON visitors(visitor_id);
+CREATE INDEX IF NOT EXISTS idx_visitors_lead_id ON visitors(lead_id);
+
+-- Create knowledge_base table if not exists
+CREATE TABLE IF NOT EXISTS knowledge_base (
+  id SERIAL PRIMARY KEY,
+  category VARCHAR(100) NOT NULL,
+  question TEXT,
+  answer TEXT NOT NULL,
+  tags VARCHAR(50)[],
+  priority INTEGER DEFAULT 0,
+  is_active BOOLEAN DEFAULT TRUE,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_by VARCHAR(200)
+);
+CREATE INDEX IF NOT EXISTS idx_kb_category ON knowledge_base(category);
+CREATE INDEX IF NOT EXISTS idx_kb_active ON knowledge_base(is_active) WHERE is_active = TRUE;
+CREATE INDEX IF NOT EXISTS idx_kb_priority ON knowledge_base(priority DESC);
+
+-- Insert default knowledge if empty
+INSERT INTO knowledge_base (category, question, answer, tags, priority, updated_by)
+SELECT 'general', 'What payment methods do you accept?', 'We accept M-Pesa, Wave, Airtel Money, MTN MoMo, Visa, and other major African & international payment options.', ARRAY['payment','methods'], 10, 'system'
+WHERE NOT EXISTS (SELECT 1 FROM knowledge_base WHERE question LIKE '%payment methods%');
+
+-- Create ai_interactions table if not exists
+CREATE TABLE IF NOT EXISTS ai_interactions (
+  id SERIAL PRIMARY KEY,
+  visitor_id VARCHAR(100),
+  lead_id INTEGER REFERENCES leads(id) ON DELETE SET NULL,
+  user_message TEXT NOT NULL,
+  ai_response TEXT NOT NULL,
+  tokens_used INTEGER DEFAULT 0,
+  response_time_ms INTEGER,
+  satisfaction_rating INTEGER CHECK (satisfaction_rating >= 1 AND satisfaction_rating <= 5),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ai_interactions_visitor ON ai_interactions(visitor_id);
+CREATE INDEX IF NOT EXISTS idx_ai_interactions_lead ON ai_interactions(lead_id);
+
+-- Create handoff_requests table if not exists
+CREATE TABLE IF NOT EXISTS handoff_requests (
+  id SERIAL PRIMARY KEY,
+  lead_id INTEGER REFERENCES leads(id) ON DELETE SET NULL,
+  visitor_id VARCHAR(100),
+  reason TEXT,
+  urgency VARCHAR(20) DEFAULT 'normal',
+  status VARCHAR(20) DEFAULT 'pending',
+  assigned_to VARCHAR(200),
+  notes TEXT,
+  resolved_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_handoff_status ON handoff_requests(status);
+CREATE INDEX IF NOT EXISTS idx_handoff_lead ON handoff_requests(lead_id);
+CREATE INDEX IF NOT EXISTS idx_handoff_visitor ON handoff_requests(visitor_id);
+
+-- Add trigger for handoff_requests updated_at
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER IF NOT EXISTS update_handoff_requests_updated_at
+  BEFORE UPDATE ON handoff_requests
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER IF NOT EXISTS update_visitors_updated_at
+  BEFORE UPDATE ON visitors
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

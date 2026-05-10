@@ -1,4 +1,8 @@
+"use client";
+
 import React, { useState, useEffect } from "react";
+import { Navigate } from "react-router";
+import ProtectedRoute from "@/components/ProtectedRoute";
 import {
   Save,
   ArrowLeft,
@@ -38,6 +42,14 @@ const updateSettings = async (settings) => {
 };
 
 export default function SettingsPage() {
+  return (
+    <ProtectedRoute>
+      <SettingsContent />
+    </ProtectedRoute>
+  );
+}
+
+function SettingsContent() {
   const queryClient = useQueryClient();
   const { data: initialSettings, isLoading, error } = useQuery({
     queryKey: ["settings"],

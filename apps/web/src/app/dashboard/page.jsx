@@ -1,5 +1,7 @@
 "use client";
 import React, { useState, useCallback } from "react";
+import {Outlet, Navigate} from "react-router";
+import ProtectedRoute from "@/components/ProtectedRoute";
 import {
   LayoutDashboard,
   Users,
@@ -39,17 +41,20 @@ import {
   CartesianGrid,
   Legend,
 } from "recharts";
+import { User, LogOut } from "lucide-react";
+import { useUser } from "@/utils/useUser";
+import { useAuth } from "@/utils/useAuth";
 import { useRealtimeLeads } from "@/utils/useRealtimeLeads";
 
 const fetchLeads = async () => {
   const res = await fetch("/api/leads");
-  if (!res.ok) return []; // Return empty array if API fails
+  if (!res.ok) return [];
   return res.json();
 };
 
 const fetchAnalytics = async () => {
   const res = await fetch("/api/leads/analytics");
-  if (!res.ok) return { total: 0, highIntent: 0, qualified: 0 }; // Return fallback
+  if (!res.ok) return { total: 0, highIntent: 0, qualified: 0 };
   return res.json();
 };
 
@@ -560,6 +565,9 @@ function CreateLeadModal({ show, onClose, newLead, setNewLead, createLeadMutatio
 }
 
 export default function DashboardPage() {
+  // Auth state
+  const { data: session, status } = useUser();
+  const { signOut } = useAuth();
   const queryClient = useQueryClient();
   // Connect to real-time WebSocket for live updates
   useRealtimeLeads();
@@ -908,14 +916,53 @@ export default function DashboardPage() {
               <Download size={14} /> Export CSV
             </button>
 
-            <a
-              href="/"
-              className="flex items-center gap-2 px-4 py-2 text-white rounded-xl text-xs font-bold transition-colors"
-              style={{ backgroundColor: SECONDARY }}
-            >
-              <Globe size={14} /> View Site
-            </a>
-          </div>
+             <a
+               href="/"
+               className="flex items-center gap-2 px-4 py-2 text-white rounded-xl text-xs font-bold transition-colors"
+               style={{ backgroundColor: SECONDARY }}
+             >
+               <Globe size={14} /> View Site
+             </a>
+
+             {/* Auth Section */}
+             {status === 'authenticated' && session?.user ? (
+               <div className="flex items-center gap-3">
+                 <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 rounded-xl">
+                   {session.user.image ? (
+                     <img
+                       src={session.user.image}
+                       alt={session.user.name || "User"}
+                       className="w-6 h-6 rounded-full"
+                     />
+                   ) : (
+                     <div className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">
+                       {(session.user.name || session.user.email?.[0] || "U").toUpperCase()}
+                     </div>
+                   )}
+                   <span className="text-xs font-bold text-slate-700 hidden sm:block">
+                     {session.user.name?.split(' ')[0] || 'User'}
+                   </span>
+                 </div>
+                 <button
+                   onClick={() => signOut({ callbackUrl: "/" })}
+                   className="flex items-center gap-2 px-3 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 transition-colors"
+                 >
+                   <LogOut size={14} />
+                   Sign Out
+                 </button>
+               </div>
+             ) : status === 'loading' ? (
+               <div className="w-8 h-8 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+             ) : (
+               <a
+                 href="/account/signin"
+                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-colors"
+               >
+                 <User size={14} />
+                 Sign In
+               </a>
+             )}
+           </div>
         </header>
 
         <div className="p-8">
