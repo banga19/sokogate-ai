@@ -60,12 +60,12 @@ function useAuth() {
     try {
       const result = await signIn("credentials-signin", {
         ...options,
-        callbackUrl: options.callbackUrl || null
+        callbackUrl: options.callbackUrl || "/dashboard",
       });
       
       if (!isMountedRef.current) return null;
       
-      // Handle successful sign-in
+      // Handle successful sign-in - signIn will redirect if redirect: true is passed
       if (result?.error) {
         setError(result.error);
         return result;
@@ -78,8 +78,9 @@ function useAuth() {
       if (!isMountedRef.current) return null;
       
       console.error("Credentials sign-in error:", err);
-      setError("An error occurred during sign-in. Please try again.");
-      return { error: "An error occurred during sign-in. Please try again." };
+      const errorMsg = err?.message || "An error occurred during sign-in. Please try again.";
+      setError(errorMsg);
+      return { error: errorMsg };
     } finally {
       if (isMountedRef.current) {
         setIsLoading(false);

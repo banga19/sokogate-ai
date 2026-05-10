@@ -36,6 +36,7 @@
 		"color2k": "^2.0.3",
 		"date-fns": "^4.1.0",
 		"downshift": "^9.0.9",
+		"firebase": "^12.13.0",
 		"hono": "^4.7.4",
 		"html-to-image": "^1.11.13",
 		"isbot": "^5.1.27",
@@ -45,6 +46,7 @@
 		"openai": "^6.36.0",
 		"papaparse": "^5.5.2",
 		"pdfjs-dist": "^4.8.69",
+		"pg": "^8.14.0",
 		"react": "^19.0.0",
 		"react-colorful": "^5.6.1",
 		"react-day-picker": "^9.6.7",
@@ -67,7 +69,6 @@
 		"vaul": "^1.1.2",
 		"ws": "^8.18.2",
 		"yup": "^1.6.1",
-		"pg": "^8.14.0",
 		"zustand": "^5.0.3"
 	},
 	"devDependencies": {
@@ -102,12 +103,11 @@
 	"engines": {
 		"node": ">=20.0.0"
 	},
-"overrides": {
-			"next-themes": "^0.3.0",
-			"@lshay/ui": {
-				"react": "^19.2.6",
-				"react-dom": "^19.2.6"
-			}
+	"overrides": {
+		"next-themes": "^0.3.0",
+		"@lshay/ui": {
+			"react": "^19.2.6",
+			"react-dom": "^19.2.6"
 		}
-
+	}
 }

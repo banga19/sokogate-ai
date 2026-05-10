@@ -104,7 +104,7 @@ export default function LandingPage() {
             How it Works
           </a>
           <a
-            href="/login"
+            href="/account/signin"
             className="flex items-center gap-2 px-5 py-2.5 rounded-xl hover:bg-slate-100 transition-colors"
           >
             <LogIn size={16} /> Sign In
