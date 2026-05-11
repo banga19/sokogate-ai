@@ -11,17 +11,15 @@ import {
   CheckCircle2,
   Phone,
   Headphones,
-  RefreshCw,
-  ChevronRight,
   Award,
-  Clock,
-  Target,
+  Languages,
   LogOut,
 } from "lucide-react";
 import { useChatWidget } from "@/contexts/ChatWidgetContext";
 import { useUser } from "@/contexts/AuthContext";
 import useAuth from "@/utils/useAuth";
 import { Link } from "react-router";
+import { useTranslation } from "@/contexts/TranslationContext";
 
 const QUICK_REPLIES = [
   "I want to source electronics in bulk",
@@ -31,16 +29,35 @@ const QUICK_REPLIES = [
   "What payment methods do you accept?",
 ];
 
+// Proactive chat trigger configuration
+const TRIGGER_CONFIG = {
+  timeOnPageMs: 30000, // 30 seconds
+  scrollDepthPercent: 50, // 50% scroll depth
+};
+
+// Session-based trigger tracking to avoid spamming users
+function hasTriggerBeenShown(triggerType) {
+  if (typeof window === 'undefined') return true;
+  const key = `sokogate_trigger_shown_${triggerType}`;
+  return sessionStorage.getItem(key) === 'true';
+}
+
+function markTriggerShown(triggerType) {
+  if (typeof window === 'undefined') return;
+  const key = `sokogate_trigger_shown_${triggerType}`;
+  sessionStorage.setItem(key, 'true');
+}
+
 // Progress indicator component
-function ChatProgress({ stage, progress }) {
+function ChatProgress({ stage, progress, t }) {
   if (!stage || !progress) return null;
 
   const stages = [
-    { key: 'greeting', label: 'Greeting', icon: '👋' },
-    { key: 'needs_assessment', label: 'Needs', icon: '🔍' },
-    { key: 'contact_capture', label: 'Contact', icon: '📝' },
-    { key: 'qualified', label: 'Qualified', icon: '✅' },
-    { key: 'handoff_requested', label: 'Human Help', icon: '🎧' },
+    { key: 'greeting', label: t('progress.greeting'), icon: '👋' },
+    { key: 'needs_assessment', label: t('progress.needs'), icon: '🔍' },
+    { key: 'contact_capture', label: t('progress.contact'), icon: '📝' },
+    { key: 'qualified', label: t('progress.qualified'), icon: '✅' },
+    { key: 'handoff_requested', label: t('progress.help'), icon: '🎧' },
   ];
 
   const currentIndex = progress.currentIndex;
@@ -91,27 +108,27 @@ function ChatProgress({ stage, progress }) {
 }
 
 // Lead score display component
-function LeadScoreDisplay({ score, category, isHighValue, onHumanHelp }) {
+function LeadScoreDisplay({ score, category, isHighValue, onHumanHelp, t }) {
   const scoreConfig = {
     High: {
       bg: "bg-red-50 border-red-200",
       icon: "🔥",
-      title: "High Intent Lead",
-      desc: "Ready to buy/sell now",
+      title: t('lead.highIntent'),
+      desc: t('lead.highDesc'),
       color: "text-red-700",
     },
     Medium: {
       bg: "bg-amber-50 border-amber-200",
       icon: "⚡",
-      title: "Medium Intent Lead",
-      desc: "Interested, evaluating options",
+      title: t('lead.mediumIntent'),
+      desc: t('lead.mediumDesc'),
       color: "text-amber-700",
     },
     Low: {
       bg: "bg-blue-50 border-blue-200",
       icon: "📋",
-      title: "Low Intent Lead",
-      desc: "Just browsing/research",
+      title: t('lead.lowIntent'),
+      desc: t('lead.lowDesc'),
       color: "text-blue-700",
     },
   };
@@ -129,11 +146,11 @@ function LeadScoreDisplay({ score, category, isHighValue, onHumanHelp }) {
           <p className="text-[10px] text-slate-600 mb-2">{config.desc}</p>
           <div className="flex items-center justify-between text-[10px]">
             <span className="text-slate-500">
-              Category: <span className="font-bold text-slate-700">{category}</span>
+              {t('lead.category')}: <span className="font-bold text-slate-700">{category}</span>
             </span>
             {isHighValue && (
               <span className="flex items-center gap-1 text-amber-600 font-bold">
-                <Award size={10} /> Priority
+                <Award size={10} /> {t('lead.priority')}
               </span>
             )}
           </div>
@@ -143,7 +160,7 @@ function LeadScoreDisplay({ score, category, isHighValue, onHumanHelp }) {
               className="mt-2 w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors"
             >
               <Headphones size={12} />
-              Talk to a Human
+              {t('lead.talkToHuman')}
             </button>
           )}
         </div>
@@ -154,6 +171,7 @@ function LeadScoreDisplay({ score, category, isHighValue, onHumanHelp }) {
 
 export default function ChatWidget({ settings = {} }) {
   const { isOpen, openChat, closeChat, toggleChat } = useChatWidget();
+  const { t, language, changeLanguage } = useTranslation();
 
   // Visitor ID generation/retrieval
   const getVisitorId = () => {
@@ -173,18 +191,86 @@ export default function ChatWidget({ settings = {} }) {
   const messagesRef = useRef([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [leadCaptured, setLeadCaptured] = useState(false);
-  const [capturedWhatsapp, setCapturedWhatsapp] = useState(null);
-  const [capturedName, setCapturedName] = useState(null);
-  const [leadScore, setLeadScore] = useState(null);
-  const [leadCategory, setLeadCategory] = useState(null);
-  const [isHighValue, setIsHighValue] = useState(false);
-  const [conversationStage, setConversationStage] = useState("greeting");
-  const [progress, setProgress] = useState(null);
+   const [leadCaptured, setLeadCaptured] = useState(false);
+   const [capturedWhatsapp, setCapturedWhatsapp] = useState(null);
+   const [capturedName, setCapturedName] = useState(null);
+   const [capturedEmail, setCapturedEmail] = useState(null);
+   const [emailValid, setEmailValid] = useState(true);
+   const [emailSuggestions, setEmailSuggestions] = useState([]);
+   const [leadScore, setLeadScore] = useState(null);
+   const [leadCategory, setLeadCategory] = useState(null);
+   const [isHighValue, setIsHighValue] = useState(false);
+   const [conversationStage, setConversationStage] = useState("greeting");
+   const [progress, setProgress] = useState(null);
   const [showNotification, setShowNotification] = useState(true);
   const [showHumanHelp, setShowHumanHelp] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [feedbackGiven, setFeedbackGiven] = useState(false);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
+
+  // Email validation and enrichment
+  const generateEmailSuggestions = (name, email) => {
+    if (!name) return [];
+    const suggestions = [];
+    const cleanName = name.toLowerCase().trim();
+    const parts = cleanName.split(/\s+/);
+    const firstName = parts[0] || '';
+    const lastName = parts[1] || '';
+
+    // Common personal email domains
+    const personalDomains = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com'];
+
+    // Build patterns
+    const patterns = [];
+    if (lastName) {
+      patterns.push(`${firstName}.${lastName}`);
+      patterns.push(`${firstName}${lastName}`);
+      patterns.push(`${firstName[0]}${lastName}`);
+      patterns.push(`${firstName}${lastName[0]}`);
+      patterns.push(`${firstName}-${lastName}`);
+    }
+    patterns.push(firstName);
+    patterns.push(`${firstName}.${lastName || 'mail'}`);
+
+    // Generate up to 3 candidate emails with common domains
+    const candidates = [];
+    patterns.forEach(pattern => {
+      if (candidates.length >= 3) return;
+      const domain = personalDomains[Math.floor(Math.random() * personalDomains.length)];
+      candidates.push(`${pattern}@${domain}`);
+    });
+
+    // If email was partially provided (missing domain), complete it
+    if (email && email.includes('@')) {
+      const [localPart] = email.split('@');
+      if (localPart) {
+        candidates.unshift(`${localPart}@gmail.com`, `${localPart}@company.com`);
+      }
+    }
+
+    suggestions.push(...candidates.slice(0, 3).map(email => ({
+      type: 'complete',
+      text: email,
+    })));
+
+    // Add a generic hint
+    suggestions.push({
+      type: 'hint',
+      text: `Common: ${firstName}@gmail.com, ${firstName}.${lastName}@company.com`,
+    });
+
+    return suggestions.slice(0, 4);
+  };
+
+  const validateEmail = (email) => {
+    if (!email || email.trim() === '') return { valid: false, reason: 'missing' };
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(email.trim())) {
+      return { valid: false, reason: 'invalid_format' };
+    }
+    return { valid: true };
+  };
 
   // Auth
   const { data: session, status: authStatus } = useUser();
@@ -194,7 +280,34 @@ export default function ChatWidget({ settings = {} }) {
   const secondaryColor = settings.secondary_color || "#EF4444";
   const businessName = settings.business_name || "Sokogate";
 
-   // Fetch visitor data on mount (if returning visitor)
+  // Format message helper
+  const formatMessage = (content) => {
+    let formatted = content
+      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\n/g, "<br/>");
+
+    // Convert WhatsApp links
+    formatted = formatted.replace(
+      /https?:\/\/wa\.me\/\d+\?text=([^\s)]+)/g,
+      (match, encodedText) => {
+        const decoded = decodeURIComponent(encodedText);
+        return `<a href="${match}" target="_blank" rel="noopener noreferrer" class="underline text-green-600 hover:text-green-700">📱 WhatsApp: ${decoded}</a>`;
+      }
+    );
+
+    // Convert plain WhatsApp numbers to links
+    formatted = formatted.replace(
+      /(?: WhatsApp:\s*)?(\+?\d[\d\s-]{7,}\d)/g,
+      (match, phone) => {
+        const clean = phone.replace(/\D/g, "");
+        return `<a href="https://wa.me/${clean}" target="_blank" rel="noopener noreferrer" class="underline text-green-600 hover:text-green-700">💬 ${phone}</a>`;
+      }
+    );
+
+    return formatted;
+  };
+
+  // Fetch visitor data on mount
   useEffect(() => {
     const fetchVisitor = async () => {
       if (visitorId && visitorId !== "vis_anonymous") {
@@ -204,7 +317,6 @@ export default function ChatWidget({ settings = {} }) {
             const data = await res.json();
             if (data.visitor) {
               if (data.visitor.name) setCapturedName(data.visitor.name);
-              // Could store company in state if needed for other UI, but AI gets it via system prompt via visitor endpoint background
             }
           }
         } catch (e) {
@@ -216,50 +328,70 @@ export default function ChatWidget({ settings = {} }) {
   }, [visitorId]);
 
   useEffect(() => {
-    const initial = []; // Will be populated by API call with personalization
+    const initial = [];
     setMessages(initial);
     messagesRef.current = initial;
   }, [businessName, visitorId]);
 
-  // Initialize with personalized greeting
+   // Initialize with personalized greeting
+   useEffect(() => {
+     const initializeChat = async () => {
+       console.log('[DEBUG] businessName:', businessName, 'type:', typeof businessName);
+       console.log('[DEBUG] capturedName:', capturedName);
+       const greeting = capturedName
+         ? t('chat.greetingReturning', { businessName, name: capturedName })
+         : t('chat.greetingNew', { businessName });
+       console.log('[DEBUG] greeting:', greeting);
+       setMessages([{ role: "assistant", content: greeting }]);
+     };
+
+     initializeChat();
+   }, [businessName, capturedName, visitorId, t]);
+
+  // Proactive triggers
   useEffect(() => {
-    const initializeChat = async () => {
-      let greeting;
-
-      if (capturedName) {
-        greeting = `👋 Welcome back, **${capturedName}**! I'm your AI sourcing assistant from **${businessName}**.\n\n` +
-                   "How can I help you today? Are you looking to source products or find buyers?";
-      } else {
-        greeting = `👋 Hello! I'm your AI sourcing assistant from **${businessName}**.\n\n` +
-                   "I help connect buyers and suppliers across Africa and beyond. Whether you're looking to source products in bulk or find buyers for your goods — I'm here to help!\n\n" +
-                   "To get started, could you tell me your name and what you're looking for?";
-      }
-
-      setMessages([{ role: "assistant", content: greeting }]);
-    };
-
-    initializeChat();
-  }, [businessName, capturedName, visitorId]);
+    if (isOpen || hasTriggerBeenShown('time')) return;
+    const timer = setTimeout(() => {
+      setShowNotification(true);
+      markTriggerShown('time');
+    }, TRIGGER_CONFIG.timeOnPageMs);
+    return () => clearTimeout(timer);
+  }, [isOpen]);
 
   useEffect(() => {
-    const handleError = (event) => {
-      if (event?.detail === 'unhandledrejection') {
-        console.warn('Chat API unavailable — using demo mode');
+    if (isOpen || hasTriggerBeenShown('exit') || typeof window === 'undefined') return;
+    const handleMouseLeave = (e) => {
+      if (e.clientY <= 0) {
+        setShowNotification(true);
+        markTriggerShown('exit');
       }
     };
-    window.addEventListener('unhandledrejection', handleError);
-    return () => window.removeEventListener('unhandledrejection', handleError);
-  }, []);
+    window.addEventListener('mouseleave', handleMouseLeave);
+    return () => window.removeEventListener('mouseleave', handleMouseLeave);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen || hasTriggerBeenShown('scroll') || typeof window === 'undefined') return;
+    const handleScroll = () => {
+      const scrollPercent = (window.scrollY / (document.body.scrollHeight - window.innerHeight)) * 100;
+      if (scrollPercent >= TRIGGER_CONFIG.scrollDepthPercent) {
+        setShowNotification(true);
+        markTriggerShown('scroll');
+      }
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [isOpen]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, isLoading]);
-
-  useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
 
   useEffect(() => {
     if (isOpen && inputRef.current) {
@@ -300,30 +432,58 @@ export default function ChatWidget({ settings = {} }) {
         { role: "assistant", content: data.content },
       ]);
 
-       if (data?.leadCaptured) {
-         setLeadCaptured(true);
-         setCapturedWhatsapp(data.whatsapp);
-         setCapturedName(data.leadName);
-         setLeadScore(data.score);
-         setLeadCategory(data.category || "General");
-         setIsHighValue(data.isHighValue || false);
-         setConversationStage(data.stage || 'qualified');
-         setProgress(data.progress || null);
-       } else if (data?.handoffRequested) {
-         setShowHumanHelp(false);
-         setConversationStage('handoff_requested');
-       } else if (data?.stage) {
-         setConversationStage(data.stage);
-         setProgress(data.progress || null);
-       }
+      if (data?.leadCaptured) {
+        setLeadCaptured(true);
+        setCapturedWhatsapp(data.whatsapp);
+        setCapturedName(data.leadName);
+        setCapturedEmail(data.email || null);
+        const emailCheck = validateEmail(data.email);
+        setEmailValid(emailCheck.valid);
+        if (!emailCheck.valid && data.leadName) {
+          setEmailSuggestions(generateEmailSuggestions(data.leadName, data.email));
+        } else {
+          setEmailSuggestions([]);
+        }
+        setLeadScore(data.score);
+        setLeadCategory(data.category || "General");
+        setIsHighValue(data.isHighValue || false);
+        setConversationStage(data.stage || 'qualified');
+        setProgress(data.progress || null);
+      } else if (leadCaptured && !emailValid) {
+        // Check if user typed an email in their message (manual fix after initial capture)
+        const userMsg = messages.length > 0 ? messages[messages.length - 1]?.content : '';
+        const emailMatch = userMsg.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i);
+        if (emailMatch) {
+          const foundEmail = emailMatch[0];
+          const emailCheck = validateEmail(foundEmail);
+          if (emailCheck.valid) {
+            setCapturedEmail(foundEmail);
+            setEmailValid(true);
+            setEmailSuggestions([]);
+            // Attempt backend update
+            try {
+              await fetch("/api/leads/update-email", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ visitorId, email: foundEmail }),
+              });
+            } catch (e) { /* swallow */ }
+          }
+        }
+      } else if (data?.handoffRequested) {
+        setShowHumanHelp(false);
+        setConversationStage('handoff_requested');
+      } else if (data?.stage) {
+        setConversationStage(data.stage);
+        setProgress(data.progress || null);
+      }
     } catch (error) {
       console.error(error);
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content:
-            "Sorry, I'm having a bit of trouble right now. Please try again in a moment!",
+          content: t('chat.chatUnavailable'),
         },
       ]);
     } finally {
@@ -333,7 +493,6 @@ export default function ChatWidget({ settings = {} }) {
 
   const handleHumanHelp = async () => {
     setIsLoading(true);
-
     try {
       const response = await fetch("/api/handoff", {
         method: "POST",
@@ -345,17 +504,15 @@ export default function ChatWidget({ settings = {} }) {
         }),
       });
 
-      const data = await response.json();
-
+      const waLink = `https://wa.me/254758947124?text=${encodeURIComponent("Hello, I need assistance with my inquiry")}`;
+      console.log('[DEBUG] waLink:', waLink);
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: "I've notified our human support team! They'll join this conversation shortly.\n\nIn the meantime, you can also reach us directly on WhatsApp for faster assistance:\n" +
-                   `👉 https://wa.me/254700000000?text=${encodeURIComponent("Hello, I need assistance with my inquiry")}`,
+          content: t('chat.handoff.success', { waLink }),
         },
       ]);
-
       setShowHumanHelp(false);
     } catch (error) {
       console.error("Handoff error:", error);
@@ -363,7 +520,7 @@ export default function ChatWidget({ settings = {} }) {
         ...prev,
         {
           role: "assistant",
-          content: "I'm sorry, I couldn't connect you to a human right now. Please try again later or message us on WhatsApp.",
+          content: t('chat.handoff.error'),
         },
       ]);
       setShowHumanHelp(false);
@@ -372,41 +529,57 @@ export default function ChatWidget({ settings = {} }) {
     }
   };
 
-  const shouldNotifyValue = (score, category) => {
-    const highValuePatterns = ["container", "large quantity", "urgent", "asap", "1000", "10000"];
-    const highTouchCategories = ["Machinery & Parts", "Auto Parts"];
-    return (
-      score === "High" ||
-      highValuePatterns.some(p => (category || "").toLowerCase().includes(p)) ||
-      highTouchCategories.includes(category)
-    );
-  };
+   const handleFeedback = async (rating) => {
+     setFeedbackGiven(true);
+     setShowFeedback(false);
+     try {
+       await fetch("/api/feedback", {
+         method: "POST",
+         headers: { "Content-Type": "application/json" },
+         body: JSON.stringify({
+           visitorId,
+           leadId: leadCaptured ? leadScore : null,
+           rating,
+         }),
+       });
+     } catch (error) {
+       console.error("Feedback error:", error);
+     }
+   };
 
-  const formatMessage = (content) => {
-    let formatted = content
-      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-      .replace(/\n/g, "<br/>");
+   const handleEmailSuggestion = async (suggestedEmail) => {
+     // Update the lead record directly
+     try {
+       const res = await fetch("/api/leads/update-email", {
+         method: "PATCH",
+         headers: { "Content-Type": "application/json" },
+         body: JSON.stringify({
+           visitorId,
+           email: suggestedEmail,
+         }),
+       });
 
-    // Convert WhatsApp links
-    formatted = formatted.replace(
-      /https?:\/\/wa\.me\/\d+\?text=([^\s)]+)/g,
-      (match, encodedText) => {
-        const decoded = decodeURIComponent(encodedText);
-        return `<a href="${match}" target="_blank" rel="noopener noreferrer" class="underline text-green-600 hover:text-green-700">📱 WhatsApp: ${decoded}</a>`;
-      }
-    );
+       if (res.ok) {
+         setCapturedEmail(suggestedEmail);
+         setEmailValid(true);
+         setEmailSuggestions([]);
 
-    // Convert plain WhatsApp numbers to links
-    formatted = formatted.replace(
-      /(?: WhatsApp:\s*)?(\+?\d[\d\s-]{7,}\d)/g,
-      (match, phone) => {
-        const clean = phone.replace(/\D/g, "");
-        return `<a href="https://wa.me/${clean}" target="_blank" rel="noopener noreferrer" class="underline text-green-600 hover:text-green-700">💬 ${phone}</a>`;
-      }
-    );
+         // Add confirmation message to chat
+         setMessages((prev) => [
+           ...prev,
+           {
+             role: "user",
+             content: `My email is: ${suggestedEmail}`,
+           },
+         ]);
 
-    return formatted;
-  };
+         // Optionally, fetch AI response acknowledging email
+         // (or just leave it as a user message - doesn't need AI response)
+       }
+     } catch (error) {
+       console.error("Email update error:", error);
+     }
+   };
 
   const showQuickReplies = messages.length <= 1 && !isLoading && !leadCaptured;
 
@@ -428,40 +601,28 @@ export default function ChatWidget({ settings = {} }) {
                 <Sparkles size={20} className="text-white" />
               </div>
               <div>
-                <p className="font-bold text-sm">{businessName} Assistant</p>
+                <p className="font-bold text-sm">{t('chat.title')}</p>
                 <div className="flex items-center gap-1.5">
                   <div
                     className="w-2 h-2 bg-green-400 rounded-full"
                     style={{ animation: "pulse-dot 2s ease-in-out infinite" }}
                   />
                   <p className="text-[10px] text-blue-100 font-medium uppercase tracking-wider">
-                    Online & Ready
+                    {t('chat.online')}
                   </p>
                 </div>
               </div>
-              {/* Auth indicator */}
-              {authStatus === 'authenticated' && session?.user && (
-                <Link
-                  to="/account"
-                  className="hidden md:flex items-center gap-2 px-2 py-1 bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
-                  title="My Account"
-                >
-                  {session.user.image ? (
-                    <img
-                      src={session.user.image}
-                      alt=""
-                      className="w-5 h-5 rounded-full"
-                    />
-                  ) : (
-                    <div className="w-5 h-5 bg-white/30 rounded-full flex items-center justify-center text-[8px] font-bold">
-                      {(session.user.name || 'U')[0].toUpperCase()}
-                    </div>
-                  )}
-                  <span className="text-xs font-medium">Account</span>
-                </Link>
-              )}
             </div>
             <div className="flex items-center gap-2">
+              {/* Language Selector */}
+              <button
+                onClick={() => changeLanguage(language === 'en' ? 'sw' : 'en')}
+                className="hidden md:flex items-center gap-2 px-2 py-1 bg-white/10 hover:bg-white/20 rounded-lg transition-colors text-xs"
+                title="Switch language"
+              >
+                <Languages size={14} />
+                <span>{language === 'en' ? 'SW' : 'EN'}</span>
+              </button>
               {authStatus === 'authenticated' && session?.user ? (
                 <button
                   onClick={() => signOut({ callbackUrl: '/' })}
@@ -493,7 +654,7 @@ export default function ChatWidget({ settings = {} }) {
 
           {/* Progress Bar */}
           {conversationStage && conversationStage !== 'greeting' && (
-            <ChatProgress stage={conversationStage} progress={progress} />
+            <ChatProgress stage={conversationStage} progress={progress} t={t} />
           )}
 
           {/* Lead Captured Banner with Score */}
@@ -503,7 +664,7 @@ export default function ChatWidget({ settings = {} }) {
                 <div className="flex items-center gap-2">
                   <CheckCircle2 size={16} className="text-green-600 shrink-0" />
                   <span className="text-xs font-bold text-green-700">
-                    {capturedName ? `${capturedName}, you're now in our system!` : "Your details have been saved!"}
+                    {t('lead.captured', { name: capturedName })}
                   </span>
                 </div>
                 {capturedWhatsapp && (
@@ -523,6 +684,7 @@ export default function ChatWidget({ settings = {} }) {
                 category={leadCategory}
                 isHighValue={isHighValue}
                 onHumanHelp={() => setShowHumanHelp(true)}
+                t={t}
               />
             </div>
           )}
@@ -531,7 +693,7 @@ export default function ChatWidget({ settings = {} }) {
           {showHumanHelp && (
             <div className="shrink-0 px-4 py-3 bg-blue-50 border-b border-blue-100">
               <p className="text-xs text-blue-700 font-bold mb-2">
-                🎧 Human agent requested - Please wait...
+                {t('chat.askingForHuman')}
               </p>
               <button
                 onClick={handleHumanHelp}
@@ -539,7 +701,7 @@ export default function ChatWidget({ settings = {} }) {
                 className="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-bold hover:bg-blue-700 transition-colors disabled:opacity-50"
               >
                 {isLoading ? <Loader2 size={12} className="animate-spin" /> : <Headphones size={12} />}
-                {isLoading ? "Requesting..." : "Request Human Support"}
+                {t('chat.yesConnect')}
               </button>
             </div>
           )}
@@ -627,15 +789,63 @@ export default function ChatWidget({ settings = {} }) {
                       }}
                     />
                   </div>
-                </div>
-              </div>
-            )}
+               </div>
+             </div>
+           )}
+
+           {/* Email Validation & Enrichment */}
+           {leadCaptured && !emailValid && emailSuggestions.length > 0 && (
+             <div className="px-4 py-3 bg-amber-50 border-t border-amber-100">
+               <div className="flex items-start gap-2">
+                 <div className="text-amber-600 mt-0.5">
+                   <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                     <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                   </svg>
+                 </div>
+                 <div className="flex-1">
+                   <p className="text-[10px] font-bold text-amber-800 mb-1">{t('email.invalidTitle')}</p>
+                   {emailSuggestions.map((suggestion, idx) => (
+                    suggestion.type === 'complete' ? (
+                      <button
+                        key={idx}
+                        onClick={() => handleEmailSuggestion(suggestion.text)}
+                        className="block w-full text-left text-[10px] px-2 py-1.5 mb-1 bg-white border border-amber-200 rounded-lg text-amber-700 hover:bg-amber-50 hover:border-amber-300 transition-colors"
+                      >
+                        Use: {suggestion.text}
+                      </button>
+                    ) : (
+                      <p key={idx} className="text-[9px] text-amber-600 italic">
+                        {suggestion.text}
+                      </p>
+                    )
+                  ))}
+                   <p className="text-[9px] text-amber-600 mt-1">
+                     {t('email.hint')}
+                   </p>
+                 </div>
+               </div>
+             </div>
+           )}
+
+           {/* Email Validated Confirmation */}
+           {leadCaptured && emailValid && capturedEmail && (
+             <div className="px-4 py-2 bg-green-50 border-t border-green-100">
+               <div className="flex items-center gap-2">
+                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="text-green-600">
+                   <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                 </svg>
+                 <span className="text-[10px] text-green-700 font-medium">
+                   {t('email.verified', { email: capturedEmail })}
+                 </span>
+               </div>
+             </div>
+           )}
 
             {/* Quick Replies */}
             {showQuickReplies && (
               <div className="space-y-2">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1">
-                  Quick options
+                  {t('chat.quickOptions')}
                 </p>
                 {QUICK_REPLIES.map((reply, i) => (
                   <button
@@ -651,7 +861,7 @@ export default function ChatWidget({ settings = {} }) {
                   className="mt-2 w-full flex items-center justify-center gap-2 px-3 py-2 border border-slate-200 bg-slate-50 hover:bg-slate-100 rounded-xl text-[10px] font-bold text-slate-600 transition-colors"
                 >
                   <Headphones size={12} />
-                  Talk to a Human Instead
+                  {t('chat.humanInstead')}
                 </button>
               </div>
             )}
@@ -661,7 +871,7 @@ export default function ChatWidget({ settings = {} }) {
           {showHumanHelp && (
             <div className="px-4 py-3 bg-blue-50 border-t border-blue-100">
               <p className="text-xs text-blue-800 mb-2">
-                Would you like to speak with a human representative? They can assist with complex inquiries.
+                {t('chat.humanAssistance')}
               </p>
               <div className="flex gap-2">
                 <button
@@ -670,13 +880,13 @@ export default function ChatWidget({ settings = {} }) {
                   className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 transition-colors disabled:opacity-50"
                 >
                   {isLoading ? <Loader2 size={12} className="animate-spin" /> : <Headphones size={12} />}
-                  {isLoading ? "Connecting..." : "Yes, connect me"}
+                  {t('chat.yesConnect')}
                 </button>
                 <button
                   onClick={() => setShowHumanHelp(false)}
                   className="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-xs font-bold hover:bg-slate-50 transition-colors"
                 >
-                  No, continue with AI
+                  {t('chat.continueAI')}
                 </button>
               </div>
             </div>
@@ -688,7 +898,7 @@ export default function ChatWidget({ settings = {} }) {
               <input
                 ref={inputRef}
                 type="text"
-                placeholder="Type your sourcing inquiry..."
+                placeholder={t('chat.placeholder')}
                 className="w-full pl-4 pr-12 py-3 bg-slate-100 rounded-xl focus:outline-none text-sm transition-all"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -705,11 +915,10 @@ export default function ChatWidget({ settings = {} }) {
             </div>
             <div className="flex items-center justify-between mt-2">
               <p className="text-[10px] text-center text-slate-400 font-medium">
-                Powered by{" "}
+                {t('chat.poweredBy')}{" "}
                 <span className="font-bold" style={{ color: primaryColor }}>
                   Sokogate AI
-                </span>{" "}
-                & Gemini
+                </span>
               </p>
               {!leadCaptured && (
                 <button
@@ -717,11 +926,57 @@ export default function ChatWidget({ settings = {} }) {
                   className="text-[10px] text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
                 >
                   <Headphones size={10} />
-                  Need human help?
+                  {t('chat.needHumanHelp')}
                 </button>
               )}
             </div>
           </div>
+
+          {/* Feedback Prompt */}
+          {leadCaptured && !feedbackGiven && !showFeedback && (
+            <div className="px-4 py-2 bg-slate-50 border-t border-slate-100">
+              <button
+                onClick={() => setShowFeedback(true)}
+                className="text-[10px] text-slate-500 hover:text-blue-600 transition-colors"
+              >
+                {t('feedback.prompt')}
+              </button>
+            </div>
+          )}
+
+          {/* Feedback Buttons */}
+          {showFeedback && (
+            <div className="px-4 py-3 bg-slate-50 border-t border-slate-100">
+              <p className="text-[10px] text-slate-600 mb-2">{t('feedback.title')}</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleFeedback(5)}
+                  className="flex-1 flex items-center justify-center gap-1 py-2 bg-green-100 hover:bg-green-200 rounded-lg text-green-700 transition-colors"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                  </svg>
+                  {t('feedback.thumbsUp')}
+                </button>
+                <button
+                  onClick={() => handleFeedback(1)}
+                  className="flex-1 flex items-center justify-center gap-1 py-2 bg-red-100 hover:bg-red-200 rounded-lg text-red-700 transition-colors"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/>
+                  </svg>
+                  {t('feedback.thumbsDown')}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Feedback Submitted Confirmation */}
+          {feedbackGiven && (
+            <div className="px-4 py-2 bg-green-50 border-t border-green-100">
+              <p className="text-[10px] text-green-700 font-medium">{t('feedback.thankYou')}</p>
+            </div>
+          )}
         </div>
       )}
 
@@ -739,10 +994,10 @@ export default function ChatWidget({ settings = {} }) {
           </div>
           <div className="flex-1">
             <p className="text-xs font-bold text-slate-800">
-              👋 Looking to source products?
+              👋 {t('chat.quickOptions')}?
             </p>
             <p className="text-[10px] text-slate-500">
-              Talk to our AI agent now!
+              {t('chat.needHumanHelp')}
             </p>
           </div>
           <button

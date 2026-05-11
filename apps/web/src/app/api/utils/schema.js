@@ -285,31 +285,31 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER IF NOT EXISTS update_business_settings_updated_at
+CREATE TRIGGER update_business_settings_updated_at
   BEFORE UPDATE ON business_settings
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER IF NOT EXISTS update_leads_updated_at
+CREATE TRIGGER update_leads_updated_at
   BEFORE UPDATE ON leads
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER IF NOT EXISTS update_handoff_requests_updated_at
+CREATE TRIGGER update_handoff_requests_updated_at
   BEFORE UPDATE ON handoff_requests
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER IF NOT EXISTS update_products_updated_at
+CREATE TRIGGER update_products_updated_at
   BEFORE UPDATE ON products
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER IF NOT EXISTS update_knowledge_base_updated_at
+CREATE TRIGGER update_knowledge_base_updated_at
   BEFORE UPDATE ON knowledge_base
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER IF NOT EXISTS update_visitors_updated_at
+CREATE TRIGGER update_visitors_updated_at
   BEFORE UPDATE ON visitors
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER IF NOT EXISTS update_weekly_metrics_updated_at
+CREATE TRIGGER update_weekly_metrics_updated_at
   BEFORE UPDATE ON weekly_metrics
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 

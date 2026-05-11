@@ -35,6 +35,7 @@ import { useDevServerHeartbeat } from '../__create/useDevServerHeartbeat';
 import type { Route } from './+types/root';
 import { ChatWidgetProvider } from '@/contexts/ChatWidgetContext';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { TranslationProvider } from '@/contexts/TranslationContext';
 
 export const links = () => [];
 
@@ -461,10 +462,12 @@ export const ErrorBoundary = InternalErrorBoundary;
 
 export default function App() {
   return (
-    <AuthProvider>
-      <ChatWidgetProvider>
-        <Outlet />
-      </ChatWidgetProvider>
-    </AuthProvider>
+    <TranslationProvider>
+      <AuthProvider>
+        <ChatWidgetProvider>
+          <Outlet />
+        </ChatWidgetProvider>
+      </AuthProvider>
+    </TranslationProvider>
   );
 }

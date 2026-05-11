@@ -3,6 +3,8 @@ import { queryProducts } from "@/app/api/utils/productSql";
 import { scoreLeadFromText } from "@/utils/leadScoring";
 import { serverEvents } from "@/server/pubsub";
 import Anthropic from "@anthropic-ai/sdk";
+import { fetchProductDetails, searchProducts } from "@/lib/webProductSearch";
+
 
 const CATEGORIES = [
   "Apparel & Fabrics", "Electronics", "Agriculture & Food", "Auto Parts",
@@ -149,6 +151,49 @@ async function fetchRelevantProducts(userText, limit = 5) {
   }
 }
 
+function formatScrapedProductContext(products) {
+  if (!products?.length) return '';
+
+  return `\n\nREAL-TIME PRODUCT DATA (FROM sokogate.com):\n${products.map(p => {
+    const name = p.name || 'N/A';
+    const desc = p.description ? p.description.replace(/\s+/g, ' ').trim() : null;
+    const price = p.price != null ? `${p.currency || 'USD'} ${Number(p.price).toFixed(2)}` : null;
+    const stock = p.stock_quantity != null ? (p.stock_quantity > 0 ? `${p.stock_quantity} units (approx)` : 'Out of stock (approx)') : 'N/A';
+    const sku = p.sku || p.sku === '' ? p.sku : 'N/A';
+    const url = p.url || 'N/A';
+
+    const parts = [
+      `Product: ${name}`,
+      desc ? `Description: ${desc}` : null,
+      price ? `Price: ${price}` : 'Price: Contact / Not found',
+      `Stock: ${stock}`,
+      `SKU: ${sku}`,
+      url ? `Source URL: ${url}` : null,
+    ].filter(Boolean);
+
+    return parts.join('\n');
+  }).join('\n---\n')}\n\n`;
+}
+
+async function fetchScrapedProductDetails(userText, limit = 3) {
+  const scraped = await searchProducts(userText, limit);
+  if (!scraped?.length) return [];
+
+  // If URLs exist, try to fetch details for the top matches
+  const detailed = await Promise.all(
+    scraped.slice(0, limit).map(async (p) => {
+      if (p?.url) {
+        const d = await fetchProductDetails(p.url);
+        return d ? { ...p, ...d, url: p.url } : p;
+      }
+      return p;
+    })
+  );
+
+  return detailed.filter(Boolean);
+}
+
+
 function extractKeywords(text) {
   const words = text.toLowerCase().split(/\s+/);
   const stop = new Set(["i","need","want","looking","for","the","a","an","is","are","was","were","be","been","have","has","had","do","does","did","will","would","could","should","may","might","can","must","shall","to","of","in","on","at","by","with","and","or","but","if","then","so","as","when","where","why","how","all","any","some","most","many","few","such","no","not","only","also","very","just","really","please","thanks","thank","you","your","my","our","their","his","her","its","am","im","i'm","from","we","us"]);
@@ -215,7 +260,7 @@ function buildScoreMessage(score, category, isHighValue) {
   if (score === "High") msg += "1. Expect WhatsApp call within 24h\n2. Have PO/contract ready\n3. We'll send quotes via WhatsApp\n";
   else if (score === "Medium") msg += "1. We'll email catalog within 24h\n2. Schedule a WhatsApp call\n3. Request samples if needed\n";
   else msg += "1. Browse catalog\n2. Message us on WhatsApp when ready\n3. Ask me anything!\n";
-  if (score !== "Low") msg += `\n💬 WhatsApp: ${generateWhatsAppLink("+254700000000", `Following up about ${category}`)}`;
+  if (score !== "Low") msg += `\n💬 WhatsApp: ${generateWhatsAppLink("+254758947124", `Following up about ${category}`)}`;
   return msg;
 }
 
@@ -288,18 +333,37 @@ export async function POST(request) {
       return Response.json({ content, leadCaptured: false, stage: currentStage, progress: buildProgressIndicator(currentStage) });
     }
 
-    // Handoff request check
-    if (latestUserText.toLowerCase().match(/talk to a human|speak to someone|human assistant|real person/)) {
-      return Response.json({
-        content: `I've connected you with a human agent! 🎉\n\nOne of our **${settings.business_name}** representatives will be with you shortly.\n\nOr message us directly:\n👉 ${generateWhatsAppLink("+254700000000", "Hello, I need assistance")}\n\nThank you!`,
-        handoffRequested: true,
-        leadCaptured: false,
-        stage: 'handoff_requested'
-      });
-    }
+     // Handoff request check
+     if (latestUserText.toLowerCase().match(/talk to a human|speak to someone|human assistant|real person/)) {
+       return Response.json({
+         content: `I've connected you with a human agent! 🎉
 
-    // System prompt
-    const systemPrompt = `You are the Sokogate AI Sales Agent — Africa's #1 B2B Sourcing AI.
+One of our **${settings.business_name}** representatives will be with you shortly.
+
+Or message us directly:
+👉 https://wa.me/254758947124?text=${encodeURIComponent("Hello, I need assistance")}
+
+Thank you!`,
+         handoffRequested: true,
+         leadCaptured: false,
+         stage: 'handoff_requested'
+       });
+     }
+
+     // System prompt
+     const detectedCategory = detectCategory(latestUserText);
+     const categoryGuidance = {
+       "Apparel & Fabrics": "For apparel buyers: ask about garment type, sizes, fabric preferences, MOQ. For apparel suppliers: ask about manufacturing capacity, export experience.",
+       "Electronics": "Ask about specific product types (phones, laptops, components), quantity, required specs, destination country, and usage scenario.",
+       "Agriculture & Food": "Ask about product type, quantity, grade/quality standards, packaging, destination, and timeline. Find out if they need certifications.",
+       "Auto Parts": "Ask about vehicle type, part numbers, compatibility, quantity, and destination. Determine if they're a repair shop, distributor, or manufacturer.",
+       "Health & Beauty": "Ask about product type (cosmetics, supplements, pharmaceuticals), regulatory requirements (FDA, KEBS), quantity, and destination.",
+       "Machinery & Parts": "Ask about equipment type, capacity, power requirements, intended use, quantity, and shipping constraints.",
+       "Home & Construction": "Ask about material type (furniture, building materials, fixtures), quantity, dimensions, and destination city/country.",
+       "Sports & Toys": "Ask about product category (outdoor, indoor, age groups), safety certifications, quantity, and target market."
+     }[detectedCategory] || "Ask targeted questions to understand: exact product needs, quantity/MOQ, destination, timeline, and budget. Get specifics to match with suppliers.";
+
+     const systemPrompt = `You are the Sokogate AI Sales Agent — Africa's #1 B2B Sourcing AI.
 
 Business: ${settings.business_name} | ${settings.business_description}
 Mission: ${settings.ai_goal}
@@ -310,6 +374,7 @@ PRODUCT DATA:
 When asked about products, use REAL-TIME PRODUCT DATA (provided separately) for accurate pricing, stock, and specs. If no data, answer generally and ask for specifics to look up.
 
 CATEGORIES: Apparel & Fabrics, Electronics, Agriculture & Food, Auto Parts, Health & Beauty, Machinery & Parts, Home & Construction, Sports & Toys.
+DETECTED CATEGORY: ${detectedCategory === "Other" ? "Not yet determined" : detectedCategory}
 
 PAYMENTS: M-Pesa, Wave, Airtel Money, MTN MoMo, Visa, and more.
 SHIPPING: Air 7-15 days, Sea 45-75 days, full tracking.
@@ -330,8 +395,11 @@ INSTRUCTIONS:
 5. If user asks for "human" or "real person", respond with handoff message
 6. When you have: name + contact (phone/WhatsApp/email) + product details → append LEAD_DATA
 
+CATEGORY-SPECIFIC GUIDANCE:
+${categoryGuidance}
+
 WHATSAPP DEEP LINK EXAMPLE:
-${generateWhatsAppLink("+254700000000", "Hello, I need assistance")}
+${generateWhatsAppLink("+254758947124", "Hello, I need assistance")}
 
 HANDOFF:
 If user says "talk to a human", respond with helpful handoff message.
@@ -342,14 +410,23 @@ LEAD CAPTURE (append to your message when ready):
 If score is High, also tell user: "Since this is high-priority, I'm notifying our human team to prioritize your request."
 DO NOT mention LEAD_DATA or HANDOFF tokens to user. Ask only for missing info, never repeat already given.`;
 
-    // Product context
-    let productContext = "";
-    if (latestUserText?.length > 5) {
-      try {
-        const products = await fetchRelevantProducts(latestUserText);
-        if (products.length) productContext = formatProductContext(products);
-      } catch (e) { console.warn("Product fetch error:", e); }
-    }
+     // Product context: fetch from sokogate.com product database first, fallback to web scrape
+     let productContext = "";
+     if (latestUserText?.length > 5) {
+       try {
+         // First, try the product database (sokogate.com DB via PRODUCTS_DATABASE_URL)
+         let products = await fetchRelevantProducts(latestUserText);
+         if (!products || products.length === 0) {
+           // Fallback: scrape sokogate.com website if DB returns no results
+           products = await fetchScrapedProductDetails(latestUserText, 5);
+           if (products?.length) productContext = formatScrapedProductContext(products);
+         } else {
+           productContext = formatProductContext(products);
+         }
+       } catch (e) {
+         console.warn("Product fetch error:", e);
+       }
+     }
 
     // Prepare full system prompt including product context
     let fullSystemPrompt = systemPrompt;
@@ -450,31 +527,32 @@ DO NOT mention LEAD_DATA or HANDOFF tokens to user. Ask only for missing info, n
          const clean = aiContent.replace(/\|LEAD_DATA:.*?\|/s, "").trim();
          const scoreMsg = buildScoreMessage(leadData.score, category, isHighValue);
 
-         return Response.json({
-           content: clean + "\n\n" + scoreMsg,
-           leadCaptured: true,
-           leadName: leadData.name,
-           whatsapp: leadData.whatsapp,
-           score: leadData.score,
-           category,
-           isHighValue,
-           stage: 'qualified',
-           progress: buildProgressIndicator('qualified')
-         });
+          return Response.json({
+            content: clean + "\n\n" + scoreMsg,
+            leadCaptured: true,
+            leadName: leadData.name,
+            email: leadData.email || null,
+            whatsapp: leadData.whatsapp,
+            score: leadData.score,
+            category,
+            isHighValue,
+            stage: 'qualified',
+            progress: buildProgressIndicator('qualified')
+          });
        } catch (e) {
          console.error("Lead save failed:", e);
        }
      }
 
-    // Progressive capture
-    const allText = safeMessages.map(m => m?.content).filter(Boolean).join(" ");
-    const contactHeuristic = looksLikeLeadCaptured({ messages: safeMessages });
-    const missingName = !contactHeuristic.hasName;
-    const hasContact = contactHeuristic.hasContact;
-    const missingInquiry = !(/electronics|clothing|apparel|agriculture|food|supplier|quantity|moq|shipping|destination/i.test(allText));
-    const detectedCategory = detectCategory(allText);
-    const missingCategory = !detectedCategory || detectedCategory === "Other";
-    const missingCompany = !(visitor.company || extractCompanyFromText(allText));
+     // Progressive capture
+     const allText = safeMessages.map(m => m?.content).filter(Boolean).join(" ");
+     const contactHeuristic = looksLikeLeadCaptured({ messages: safeMessages });
+     const missingName = !contactHeuristic.hasName;
+     const hasContact = contactHeuristic.hasContact;
+     const missingInquiry = !(/electronics|clothing|apparel|agriculture|food|supplier|quantity|moq|shipping|destination/i.test(allText));
+     const conversationCategory = detectCategory(allText);
+     const missingCategory = !conversationCategory || conversationCategory === "Other";
+     const missingCompany = !(visitor.company || extractCompanyFromText(allText));
 
     if (hasContact && (missingName || missingInquiry || missingCategory || missingCompany)) {
       try { await sql`UPDATE visitors SET conversation_stage = 'contact_capture' WHERE visitor_id = ${visitorId}`; } catch (e) {}

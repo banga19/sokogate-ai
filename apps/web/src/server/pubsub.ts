@@ -108,10 +108,15 @@ class ServerEvents extends EventEmitter {
      this.broadcast(JSON.stringify({ type: 'updateMetric', metric }));
    }
 
-   emitAnalytics(analytics: Record<string, unknown>) {
-     this.emit('analyticsUpdate' as const, analytics);
-     this.broadcast(JSON.stringify({ type: 'analyticsUpdate', analytics }));
-   }
-}
+    emitAnalytics(analytics: Record<string, unknown>) {
+      this.emit('analyticsUpdate' as const, analytics);
+      this.broadcast(JSON.stringify({ type: 'analyticsUpdate', analytics }));
+    }
 
-export const serverEvents = new ServerEvents();
+    emitHandoff(handoff: Record<string, unknown>) {
+      this.emit('newHandoff' as const, handoff);
+      this.broadcast(JSON.stringify({ type: 'newHandoff', handoff }));
+    }
+  }
+
+  export const serverEvents = new ServerEvents();
