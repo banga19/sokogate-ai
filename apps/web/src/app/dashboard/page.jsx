@@ -438,6 +438,14 @@ function CreateLeadModal({ show, onClose, newLead, setNewLead, createLeadMutatio
         </div>
 
         <div className="p-6 space-y-4">
+          {/* Error Alert */}
+          {createLeadMutation.isError && (
+            <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <AlertCircle size={18} className="text-red-600 shrink-0 mt-0.5" />
+              <p className="text-sm text-red-700">{createLeadMutation.error?.message || 'Failed to create lead'}</p>
+            </div>
+          )}
+
           {/* Name */}
           <div>
             <label className="block text-xs font-bold text-slate-600 mb-1.5">Name *</label>
@@ -707,37 +715,46 @@ export default function DashboardPage() {
     },
   });
 
-   const createLeadMutation = useMutation({
-      mutationFn: async (leadData) => {
-        const res = await fetch("/api/leads", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(leadData),
-        });
-        if (!res.ok) throw new Error("Failed to create lead");
-        return res.json();
-      },
-      onSuccess: async (newLead) => {
-        await queryClient.cancelQueries({ queryKey: ["leads"] });
-        queryClient.setQueryData(['leads'], (old = []) => [newLead, ...(old || []).filter(l => l.id !== newLead.id)]);
-        queryClient.invalidateQueries({ queryKey: ["leads"] });
-        queryClient.invalidateQueries({ queryKey: ["analytics"] });
-        setShowCreateModal(false);
-        setNewLead({
-          name: "",
-          email: "",
-          phone: "",
-          whatsapp: "",
-          category: "",
-          intent_summary: "",
-          message: "",
-          score: "Medium",
-        });
-      },
-      onError: (err) => {
-        console.error('[CreateLead] Mutation error:', err);
+    const createLeadMutation = useMutation({
+       mutationFn: async (leadData) => {
+         const res = await fetch("/api/leads", {
+           method: "POST",
+           headers: { "Content-Type": "application/json" },
+           body: JSON.stringify(leadData),
+         });
+         const data = await res.json();
+         if (!res.ok) {
+           throw new Error(data.error || data.details || 'Failed to create lead');
+         }
+         return data;
        },
-     });
+       onSuccess: async (newLead) => {
+         await queryClient.cancelQueries({ queryKey: ["leads"] });
+         queryClient.setQueryData(['leads'], (old = []) => [newLead, ...(old || []).filter(l => l.id !== newLead.id)]);
+         queryClient.invalidateQueries({ queryKey: ["leads"] });
+         queryClient.invalidateQueries({ queryKey: ["analytics"] });
+         setShowCreateModal(false);
+         setNewLead({
+           name: "",
+           email: "",
+           phone: "",
+           whatsapp: "",
+           category: "",
+           intent_summary: "",
+           message: "",
+           score: "Medium",
+         });
+       },
+       onError: (err) => {
+         console.error('[CreateLead] Mutation error:', err);
+         // Show toast notification for better UX
+         if (typeof window !== 'undefined') {
+           import('sonner').then(({ toast }) => {
+             toast.error(err.message || 'Failed to create lead');
+           });
+         }
+        },
+      });
 
     // Data fetching for prospects, investors, partnerships, metrics
     const { data: prospects = [], isLoading: isLoadingProspects } = useQuery({

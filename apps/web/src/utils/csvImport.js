@@ -1,62 +1,30 @@
 /**
  * CSV Import Utility for Sales & Funding Data
- * Simple CSV parser for Node.js environment
+ * Uses PapaParse for robust CSV parsing
  */
+
+import Papa from 'papaparse';
 
 /**
  * Parse CSV text into array of objects
- * Handles basic CSV with quoted fields
+ * Uses PapaParse for proper handling of quoted fields, delimiters, etc.
+ * Returns array of row objects synchronously.
  */
 export function parseCSV(csvText) {
-  const lines = csvText.split(/\r?\n/).filter(line => line.trim());
-  if (lines.length === 0) return [];
-
-  // Parse header
-  const headers = parseCSVLine(lines[0]);
-
-  // Parse data rows
-  const rows = [];
-  for (let i = 1; i < lines.length; i++) {
-    const values = parseCSVLine(lines[i]);
-    if (values.length === headers.length) {
-      const rowObj = {};
-      headers.forEach((header, idx) => {
-        rowObj[header.trim()] = values[idx]?.trim() || '';
-      });
-      rows.push(rowObj);
-    }
+  let result = [];
+  try {
+    // PapaParse is async but we need sync result - use synchronous mode
+    const parsed = Papa.parse(csvText, {
+      header: true,
+      skipEmptyLines: true,
+      dynamicTyping: false,
+      trimHeaders: true,
+      transform: (value) => (typeof value === 'string' ? value.trim() : value),
+    });
+    result = parsed.data;
+  } catch (err) {
+    console.error('CSV parsing failed:', err);
   }
-  return rows;
-}
-
-/**
- * Parse a single CSV line, respecting quoted fields
- */
-function parseCSVLine(line) {
-  const result = [];
-  let current = '';
-  let inQuotes = false;
-
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-    const nextChar = line[i + 1];
-
-    if (char === '"') {
-      if (inQuotes && nextChar === '"') {
-        // Escaped quote
-        current += '"';
-        i++; // skip next quote
-      } else {
-        inQuotes = !inQuotes;
-      }
-    } else if (char === ',' && !inQuotes) {
-      result.push(current);
-      current = '';
-    } else {
-      current += char;
-    }
-  }
-  result.push(current);
   return result;
 }
 
@@ -192,35 +160,72 @@ export function generateInitialMetrics() {
   return metrics;
 }
 
-/**
- * Map CSV row to lead object
- * Expected headers (case-insensitive):
- *   name, email, phone, whatsapp, message, score (High/Medium/Low),
- *   intent_summary, category, keyword_score (High/Medium/Low), source
- */
 export function mapLeadRow(row) {
   // Normalize score values
   const normalizeScore = (val) => {
-    const v = (val || '').toLowerCase();
+    const v = (val || '').toLowerCase().trim();
     if (v === 'high') return 'High';
     if (v === 'medium') return 'Medium';
-    return 'Low';
+    if (v === 'low') return 'Low';
+    return 'Medium'; // default
   };
 
-  return {
-    name: row.NAME || row.name || '',
-    email: row.EMAIL || row.email || '',
-    phone: row.PHONE || row.phone || '',
-    whatsapp: row.WHATSAPP || row.whatsapp || '',
-    message: row.MESSAGE || row.message || '',
-    score: normalizeScore(row.SCORE || row.score) || 'Medium',
-    intent_summary: row.INTENT_SUMMARY || row.intent_summary || '',
-    category: row.CATEGORY || row.category || '',
-    keyword_score: normalizeScore(row.KEYWORD_SCORE || row.keyword_score) || 'Low',
-    source: row.SOURCE || row.source || 'csv_import',
-    status: 'New', // default status for imported leads
+  // Get field value flexibly (try multiple possible column names)
+  const getField = (possibleNames, defaultValue = '') => {
+    // First pass: try exact names
+    for (const name of possibleNames) {
+      const val = row[name];
+      if (val !== undefined && val !== null && typeof val === 'string' && val.trim()) {
+        return val.trim();
+      }
+    }
+    // Second pass: try lowercase versions of the column names
+    for (const name of possibleNames) {
+      const lowerName = name.toLowerCase();
+      if (lowerName !== name) {
+        const val = row[lowerName];
+        if (val !== undefined && val !== null && typeof val === 'string' && val.trim()) {
+          return val.trim();
+        }
+      }
+    }
+    // Third pass: try case-insensitive search through all row keys
+    const rowKeys = Object.keys(row);
+    for (const name of possibleNames) {
+      const match = rowKeys.find(k => k.toLowerCase() === name.toLowerCase());
+      if (match) {
+        const val = row[match];
+        if (val !== undefined && val !== null && typeof val === 'string' && val.trim()) {
+          return val.trim();
+        }
+      }
+    }
+    return defaultValue;
   };
-}
+
+  const name = getField(['NAME', 'Name', 'name', 'FULL NAME', 'FULL_NAME', 'full_name', 'CONTACT NAME', 'CONTACT_NAME', 'contact_name', 'CONTACT', 'Contact', 'contact']);
+  const email = getField(['EMAIL', 'Email', 'email', 'E-MAIL', 'E_MAIL', 'e_mail', 'MAIL', 'mail']);
+  const phone = getField(['PHONE', 'Phone', 'phone', 'PHONE NUMBER', 'PHONE_NUMBER', 'phone_number', 'MOBILE', 'mobile', 'CELL', 'cell', 'TEL', 'tel']);
+  const whatsapp = getField(['WHATSAPP', 'Whatsapp', 'whatsapp', 'WHATSAPP NUMBER', 'WHATSAPP_NUMBER', 'whatsapp_number', 'WA', 'wa', 'WHATSAPP NO', 'WHATSAPP_NO']);
+  const message = getField(['MESSAGE', 'Message', 'message', 'NOTES', 'Notes', 'notes', 'DESCRIPTION', 'description', 'COMMENTS', 'comments']);
+  const score = normalizeScore(getField(['SCORE', 'Score', 'score', 'LEAD SCORE', 'LEAD_SCORE', 'lead_score', 'PRIORITY', 'priority', 'RATING', 'rating']) || 'Medium');
+  const intent_summary = getField(['INTENT_SUMMARY', 'Intent_summary', 'intent_summary', 'INTENT', 'Intent', 'intent', 'REQUIREMENTS', 'requirements', 'NEED', 'need', 'PURPOSE', 'purpose']);
+  const category = getField(['CATEGORY', 'Category', 'category', 'TYPE', 'Type', 'type', 'INDUSTRY', 'Industry', 'industry', 'SECTOR', 'sector', 'FIELD', 'field']);
+
+  return {
+    name,
+    email,
+    phone,
+    whatsapp,
+    message,
+    score,
+    intent_summary,
+    category,
+    keyword_score: score, // Default keyword_score to same as score
+    source: 'csv_import',
+    status: 'New', // default status for imported leads
+   };
+ }
 
 /**
  * Validate a lead object

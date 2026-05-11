@@ -1,9 +1,12 @@
 import NeonAdapter from '../../../../../__create/adapter.ts';
-import { Pool } from '@neondatabase/serverless';
+import { Pool } from 'pg';
 import { hash as hashPassword } from 'argon2';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'development'
+    ? false
+    : { rejectUnauthorized: false },
 });
 const adapter = NeonAdapter(pool);
 

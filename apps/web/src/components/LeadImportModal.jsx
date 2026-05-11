@@ -198,7 +198,7 @@ function LeadImportModal({ isOpen, onClose, onSuccess }) {
           {status === 'success' && result && (
             <div className="flex items-start gap-2 p-4 bg-green-50 border border-green-200 rounded-lg">
               <CheckCircle size={20} className="text-green-600 shrink-0" />
-              <div className="space-y-1">
+              <div className="space-y-1 w-full">
                 <p className="font-bold text-green-800">{result.message}</p>
                 <div className="flex gap-3 text-sm">
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-green-100 text-green-700">
@@ -210,6 +210,14 @@ function LeadImportModal({ isOpen, onClose, onSuccess }) {
                     </span>
                   )}
                 </div>
+                {result.errorCount > 0 && result.errors && result.errors.length > 0 && (
+                  <div className="mt-2 max-h-48 overflow-y-auto border border-red-200 rounded-lg p-2">
+                    <pre className="text-xs text-red-600 whitespace-pre-wrap font-mono">
+                      {result.errors.slice(0, 100).join('\n')}
+                      {result.errors.length > 100 && `... and ${result.errors.length - 100} more errors`}
+                    </pre>
+                  </div>
+                )}
               </div>
             </div>
           )}

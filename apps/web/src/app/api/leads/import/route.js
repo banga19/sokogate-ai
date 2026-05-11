@@ -34,6 +34,12 @@ export async function POST(request) {
     let errorCount = 0;
     const errors = [];
 
+    // Debug: log first row to see column names
+    if (process.env.NODE_ENV === 'development' && rows.length > 0) {
+      console.log('CSV Import - First row raw data:', JSON.stringify(rows[0], null, 2));
+      console.log('CSV Import - Column names:', Object.keys(rows[0]));
+    }
+
     // Process each row
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
@@ -44,7 +50,11 @@ export async function POST(request) {
         const validationError = validateLead(lead, rowNum);
         if (validationError) {
           errorCount++;
-          errors.push(validationError);
+          // Include row details in error for debugging
+          const rowPreview = JSON.stringify(row).substring(0, 150);
+          errors.push(`${validationError} - Row data: ${rowPreview}`);
+          // Also log to server console for development
+          console.error(`Row ${rowNum} validation failed:`, lead, 'from raw:', Object.keys(row));
           continue;
         }
 

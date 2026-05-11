@@ -10,6 +10,7 @@
 		"build:prod": "NODE_ENV=production react-router build"
 	},
 	"dependencies": {
+		"@anthropic-ai/sdk": "^0.95.2",
 		"@auth/core": "^0.37.2",
 		"@babel/generator": "^7.27.1",
 		"@chakra-ui/react": "2.8.2",
@@ -36,6 +37,7 @@
 		"color2k": "^2.0.3",
 		"date-fns": "^4.1.0",
 		"downshift": "^9.0.9",
+		"dotenv": "^16.4.7",
 		"firebase": "^12.13.0",
 		"hono": "^4.7.4",
 		"html-to-image": "^1.11.13",

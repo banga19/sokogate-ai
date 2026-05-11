@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import nodeConsole from 'node:console';
+import { config } from 'dotenv';
 import { skipCSRFCheck } from '@auth/core';
 import Credentials from '@auth/core/providers/credentials';
 import Google from '@auth/core/providers/google';
@@ -8,7 +9,7 @@ import Facebook from '@auth/core/providers/facebook';
 import Twitter from '@auth/core/providers/twitter';
 import Apple from '@auth/core/providers/apple';
 import { authHandler, initAuthConfig } from '@hono/auth-js';
-import { Pool, neonConfig } from '@neondatabase/serverless';
+import { Pool } from 'pg';
 import { hash, verify } from 'argon2';
 import { Hono } from 'hono';
 import { contextStorage } from 'hono/context-storage';
@@ -18,15 +19,16 @@ import { bodyLimit } from 'hono/body-limit';
 import { requestId } from 'hono/request-id';
 import { createHonoServer } from 'react-router-hono-server/node';
 import { serializeError } from 'serialize-error';
-import ws from 'ws';
 import NeonAdapter from './adapter';
 import { getHTMLForErrorPage } from './get-html-for-error-page';
 import { isAuthAction } from './is-auth-action';
 import { API_BASENAME, api, routesReady } from './route-builder';
 import { serverEvents } from '../src/server/pubsub';
+import { ensureSchema, checkDatabase } from '../src/app/api/utils/schema.js';
+import { ensureProductsTable } from '../src/app/api/utils/productSql.js';
 
-// Attach WebSocket constructor to Neon for database websockets
-neonConfig.webSocketConstructor = ws;
+// Load .env file immediately
+config();
 
 const als = new AsyncLocalStorage<{ requestId: string }>();
 
@@ -44,6 +46,9 @@ for (const method of ['log', 'info', 'warn', 'error', 'debug'] as const) {
 
 const pool = new Pool({
 	connectionString: process.env.DATABASE_URL,
+	ssl: process.env.NODE_ENV === 'development'
+		? false
+		: { rejectUnauthorized: false },
 });
 const adapter = NeonAdapter(pool);
 
@@ -303,6 +308,22 @@ app.use('/api/auth/*', async (c, next) => {
 const init = async () => {
 	// Wait for API routes to be registered
 	await routesReady;
+
+	// Initialize database schema (creates tables if they don't exist)
+	try {
+		await ensureSchema();
+		await ensureProductsTable();
+		const dbOk = await checkDatabase();
+		if (!dbOk) {
+			console.warn('⚠️ Database connectivity check failed — some features may not work');
+		} else {
+			console.log('✅ Database connection established and schema ready');
+		}
+	} catch (err) {
+		console.error('❌ Database initialization failed:', err.message);
+		console.error('   Please ensure DATABASE_URL is correct and the database exists.');
+		console.error('   The app will continue but data operations will be disabled.');
+	}
 
 	// Mount the API routes
 	app.route(API_BASENAME, api);

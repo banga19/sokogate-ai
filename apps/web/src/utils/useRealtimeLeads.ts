@@ -18,18 +18,27 @@ type WSMessage =
 export function useRealtimeLeads() {
   const queryClient = useQueryClient();
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectAttemptsRef = useRef(0);
 
-  useEffect(() => {
+  const MAX_RECONNECT_ATTEMPTS = 10;
+  const INITIAL_RECONNECT_DELAY = 1000; // 1 second
+
+  const connect = () => {
     if (typeof window === 'undefined') return;
 
     const WS_URL =
       (window.location.protocol === 'https:' ? 'wss:' : 'ws:') +
       '//' + window.location.host + '/api/ws';
 
-    const ws = new WebSocket(WS_URL);
-    wsRef.current = ws;
+    try {
+      const ws = new WebSocket(WS_URL);
+      wsRef.current = ws;
 
-    ws.onopen = () => console.log('[Realtime] WebSocket connected');
+      ws.onopen = () => {
+        console.log('[Realtime] WebSocket connected');
+        reconnectAttemptsRef.current = 0; // Reset on successful connection
+      };
 
       ws.onmessage = (event) => {
         try {
@@ -101,10 +110,43 @@ export function useRealtimeLeads() {
         }
       };
 
-    ws.onclose = () => console.log('[Realtime] WebSocket disconnected');
-    ws.onerror = (err) => console.error('[Realtime] WebSocket error:', err);
+      ws.onclose = (event) => {
+        console.log('[Realtime] WebSocket disconnected');
+        wsRef.current = null;
 
-    return () => ws.close();
+        // Attempt reconnection with exponential backoff
+        if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+          const delay = INITIAL_RECONNECT_DELAY * Math.pow(2, reconnectAttemptsRef.current);
+          reconnectAttemptsRef.current++;
+          console.log(`[Realtime] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current})`);
+          reconnectTimeoutRef.current = setTimeout(() => {
+            connect();
+          }, delay);
+        } else {
+          console.error('[Realtime] Max reconnection attempts reached');
+        }
+      };
+
+      ws.onerror = (err) => {
+        console.error('[Realtime] WebSocket error:', err);
+      };
+
+    } catch (err) {
+      console.error('[Realtime] Failed to create WebSocket:', err);
+    }
+  };
+
+  useEffect(() => {
+    connect();
+
+    return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
   }, [queryClient]);
 
   return wsRef;

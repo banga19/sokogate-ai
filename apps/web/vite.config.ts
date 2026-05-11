@@ -3,7 +3,6 @@ import { reactRouter } from '@react-router/dev/vite';
 import { reactRouterHonoServer } from 'react-router-hono-server/dev';
 import { defineConfig } from 'vite';
 import babel from 'vite-plugin-babel';
-import tsconfigPaths from 'vite-tsconfig-paths';
 import { addRenderIds } from './plugins/addRenderIds';
 import { aliases } from './plugins/aliases';
 import consoleToParent from './plugins/console-to-parent';
@@ -16,6 +15,7 @@ import { restartEnvFileChange } from './plugins/restartEnvFileChange';
 export default defineConfig({
 	// Keep them available via import.meta.env.NEXT_PUBLIC_*
 	envPrefix: 'NEXT_PUBLIC_',
+	publicDir: 'public',  // Explicitly set public directory
 	optimizeDeps: {
 		// Explicitly include fast-glob, since it gets dynamically imported and we
 		// don't want that to cause a re-bundle.
@@ -30,6 +30,9 @@ export default defineConfig({
 			'fsevents',
 			'lightningcss',
 		],
+		rolldownOptions: {
+			external: [],
+		},
 	},
 	logLevel: 'info',
 	plugins: [
@@ -62,11 +65,11 @@ export default defineConfig({
 		loadFontsFromTailwindSource(),
 		addRenderIds(),
 		reactRouter(),
-		tsconfigPaths(),
 		aliases(),
 		layoutWrapperPlugin(),
 	],
 	resolve: {
+		tsconfigPaths: true,
 		alias: {
 			lodash: 'lodash-es',
 			'npm:stripe': 'stripe',

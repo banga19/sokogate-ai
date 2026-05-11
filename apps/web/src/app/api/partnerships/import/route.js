@@ -18,10 +18,11 @@ export async function POST() {
     const rows = await parseCSV(csvContent);
     let successCount = 0;
     let errorCount = 0;
+    const errors = [];
 
-    for (const row of rows) {
+    for (let i = 0; i < rows.length; i++) {
       try {
-        const partnership = mapPartnershipRow(row);
+        const partnership = mapPartnershipRow(rows[i]);
 
         // Skip if already exists (by company name)
         const existing = await sql`
@@ -49,7 +50,8 @@ export async function POST() {
         successCount++;
       } catch (err) {
         errorCount++;
-        console.error("Partnership import error:", err.message);
+        errors.push(`Row ${i + 2}: ${err.message || 'Database error'}`);
+        console.error(`Partnership import error at row ${i + 2}:`, err.message);
       }
     }
 
@@ -57,6 +59,9 @@ export async function POST() {
       success: true,
       message: `Imported ${successCount} partnerships (${errorCount} errors/skipped)`,
       imported: successCount,
+      errors: errors.slice(0, 100),
+      errorCount,
+      total: rows.length,
     });
   } catch (error) {
     console.error("Import failed:", error);

@@ -7,12 +7,14 @@ function createPool(url) {
     return null;
   }
   console.log(`✅ Product database configured: ${url.split('@')[1]?.split('?')[0] || 'custom DB'}`);
-  return new Pool({ 
+  return new Pool({
     connectionString: url,
-    // Connection pooling for serverless Neon
     max: 10,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 2000,
+    ssl: process.env.NODE_ENV === 'development'
+      ? false
+      : { rejectUnauthorized: false },
   });
 }
 

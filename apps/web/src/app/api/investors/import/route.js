@@ -18,8 +18,9 @@ export async function POST() {
     const rows = await parseCSV(csvContent);
     let successCount = 0;
     let errorCount = 0;
+    const errors = [];
 
-    for (const row of rows) {
+    for (let i = 0; i < rows.length; i++) {
       try {
         const investor = mapInvestorRow(row);
 
@@ -50,7 +51,8 @@ export async function POST() {
         successCount++;
       } catch (err) {
         errorCount++;
-        console.error("Investor import error:", err.message);
+        errors.push(`Row ${i + 2}: ${err.message || 'Database error'}`);
+        console.error(`Investor import error at row ${i + 2}:`, err.message);
       }
     }
 
@@ -58,6 +60,9 @@ export async function POST() {
       success: true,
       message: `Imported ${successCount} investors (${errorCount} errors/skipped)`,
       imported: successCount,
+      errors: errors.slice(0, 100),
+      errorCount,
+      total: rows.length,
     });
   } catch (error) {
     console.error("Import failed:", error);

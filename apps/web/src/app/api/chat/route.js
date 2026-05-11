@@ -2,7 +2,7 @@ import sql from "@/app/api/utils/sql";
 import { queryProducts } from "@/app/api/utils/productSql";
 import { scoreLeadFromText } from "@/utils/leadScoring";
 import { serverEvents } from "@/server/pubsub";
-import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 
 const CATEGORIES = [
   "Apparel & Fabrics", "Electronics", "Agriculture & Food", "Auto Parts",
@@ -351,23 +351,38 @@ DO NOT mention LEAD_DATA or HANDOFF tokens to user. Ask only for missing info, n
       } catch (e) { console.warn("Product fetch error:", e); }
     }
 
-    // Messages
-    const contextMsg = productContext ? { role: "system", content: `PRODUCT CONTEXT:\n${productContext}\nUse for accurate info.` } : null;
-    const chatMessages = contextMsg ? [{ role: "system", content: systemPrompt }, contextMsg, ...safeMessages] : [{ role: "system", content: systemPrompt }, ...safeMessages];
+    // Prepare full system prompt including product context
+    let fullSystemPrompt = systemPrompt;
+    if (productContext) {
+      fullSystemPrompt += `\n\nPRODUCT CONTEXT:\n${productContext}\nUse for accurate info.`;
+    }
 
-    // OpenAI call
+    // Convert messages to Anthropic format (no system in array, pass separately)
+    const anthropicMessages = safeMessages.map(msg => ({
+      role: msg.role === 'assistant' ? 'assistant' : 'user',
+      content: msg.content
+    }));
+
+    // Anthropic Claude call
     let aiContent;
     try {
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: chatMessages,
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        throw new Error("Anthropic API key not configured");
+      }
+      const anthropic = new Anthropic({ apiKey });
+
+      const msg = await anthropic.messages.create({
+        model: "claude-3-5-haiku-latest",
         max_tokens: 1024,
+        system: fullSystemPrompt,
+        messages: anthropicMessages,
         temperature: 0.7,
       });
-      aiContent = completion.choices[0].message.content;
+
+      aiContent = msg.content[0].text;
     } catch (error) {
-      console.error("OpenAI error:", error.message);
+      console.error("Anthropic error:", error.message);
       return Response.json({ content: "I'm having connection trouble. Try again or WhatsApp us.", leadCaptured: false, stage: currentStage });
     }
 

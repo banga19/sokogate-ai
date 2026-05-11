@@ -57,7 +57,8 @@ export async function POST() {
         successCount++;
       } catch (err) {
         errorCount++;
-        errors.push(err.message);
+        errors.push(`Row ${i + 2}: ${err.message || 'Database error'}`);
+        console.error(`Prospect import error at row ${i + 2}:`, err.message);
       }
     }
 
@@ -65,7 +66,9 @@ export async function POST() {
       success: true,
       message: `Imported ${successCount} prospects (${errorCount} errors/skipped)`,
       imported: successCount,
-      errors: errorCount,
+      errors: errors.slice(0, 100),
+      errorCount,
+      total: rows.length,
     });
   } catch (error) {
     console.error("Import failed:", error);
