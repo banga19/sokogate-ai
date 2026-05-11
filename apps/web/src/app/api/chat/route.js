@@ -381,67 +381,75 @@ DO NOT mention LEAD_DATA or HANDOFF tokens to user. Ask only for missing info, n
       return Response.json({ content: aiContent.replace(/\|HANDOFF:.*?\|/s, "").trim(), handoffRequested: true, leadCaptured: false, stage: 'handoff_requested' });
     }
 
-    // Lead capture
-    const leadData = extractLeadData(aiContent);
-    if (leadData) {
-      try {
-        const keywordScore = scoreLeadFromText(safeMessages.map(m => m.content).join(" ") + " " + (leadData.message || ""));
-        let category = leadData.category || "Other";
-        if (category === "Other") category = detectCategory(safeMessages.map(m => m.content).join(" ") + " " + (leadData.message || ""));
+     // Lead capture
+     const leadData = extractLeadData(aiContent);
+     if (leadData) {
+       try {
+         const keywordScore = scoreLeadFromText(safeMessages.map(m => m.content).join(" ") + " " + (leadData.message || ""));
+         let category = leadData.category || "Other";
+         if (category === "Other") category = detectCategory(safeMessages.map(m => m.content).join(" ") + " " + (leadData.message || ""));
 
-        const newStage = leadData.company ? 'qualified' : 'contact_capture';
+         const newStage = leadData.company ? 'qualified' : 'contact_capture';
 
-        const newLead = await sql`
-          INSERT INTO leads (
-            name, email, phone, whatsapp, message, score, intent_summary,
-            keyword_score, category, source, visitor_id, company,
-            conversation_stage, handoff_requested, status
-          )
-          VALUES (
-            ${leadData.name || null},
-            ${leadData.email || null},
-            ${leadData.phone || null},
-            ${leadData.whatsapp || null},
-            ${leadData.message || null},
-            ${leadData.score || "Medium"},
-            ${leadData.intent_summary || null},
-            ${keywordScore},
-            ${category},
-            'chat',
-            ${visitorId},
-            ${leadData.company || null},
-            ${newStage},
-            FALSE,
-            'Qualified'
-          )
-          RETURNING *
-        `;
+         // Use transaction to ensure lead insert and visitor update are atomic
+         const newLead = await sql.transaction(async (client) => {
+           const insertRes = await client.query(
+             `INSERT INTO leads (
+                name, email, phone, whatsapp, message, score, intent_summary,
+                keyword_score, category, source, visitor_id, company,
+                conversation_stage, handoff_requested, status
+              ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+              ) RETURNING *`,
+             [
+               leadData.name || null,
+               leadData.email || null,
+               leadData.phone || null,
+               leadData.whatsapp || null,
+               leadData.message || null,
+               leadData.score || "Medium",
+               leadData.intent_summary || null,
+               keywordScore,
+               category,
+               'chat',
+               visitorId,
+               leadData.company || null,
+               newStage,
+               false,
+               'Qualified'
+             ]
+           );
+           const leadRow = insertRes.rows[0];
+           await client.query(
+             `UPDATE visitors SET lead_id = $1, conversation_stage = 'qualified' WHERE visitor_id = $2`,
+             [leadRow.id, visitorId]
+           );
+           return leadRow;
+         });
 
-        await sql`UPDATE visitors SET lead_id = ${newLead[0].id}, conversation_stage = 'qualified' WHERE visitor_id = ${visitorId}`;
+         const isHighValue = shouldNotifyHumanRep(leadData.score || "Medium", category, leadData.message || "");
+         if (isHighValue) await createHandoffRecord(newLead.id, visitorId, "High-value lead", "high");
 
-        const isHighValue = shouldNotifyHumanRep(leadData.score || "Medium", category, leadData.message || "");
-        if (isHighValue) await createHandoffRecord(newLead[0].id, visitorId, "High-value lead", "high");
+         serverEvents.emitLead(newLead);
 
-        serverEvents.emitLead(newLead[0]);
+         const clean = aiContent.replace(/\|LEAD_DATA:.*?\|/s, "").trim();
+         const scoreMsg = buildScoreMessage(leadData.score, category, isHighValue);
 
-        const clean = aiContent.replace(/\|LEAD_DATA:.*?\|/s, "").trim();
-        const scoreMsg = buildScoreMessage(leadData.score, category, isHighValue);
-
-        return Response.json({
-          content: clean + "\n\n" + scoreMsg,
-          leadCaptured: true,
-          leadName: leadData.name,
-          whatsapp: leadData.whatsapp,
-          score: leadData.score,
-          category,
-          isHighValue,
-          stage: 'qualified',
-          progress: buildProgressIndicator('qualified')
-        });
-      } catch (e) {
-        console.error("Lead save failed:", e);
-      }
-    }
+         return Response.json({
+           content: clean + "\n\n" + scoreMsg,
+           leadCaptured: true,
+           leadName: leadData.name,
+           whatsapp: leadData.whatsapp,
+           score: leadData.score,
+           category,
+           isHighValue,
+           stage: 'qualified',
+           progress: buildProgressIndicator('qualified')
+         });
+       } catch (e) {
+         console.error("Lead save failed:", e);
+       }
+     }
 
     // Progressive capture
     const allText = safeMessages.map(m => m?.content).filter(Boolean).join(" ");

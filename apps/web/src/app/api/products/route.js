@@ -49,14 +49,9 @@ export async function GET(request) {
         hasMore: offset + limit < total,
       },
     });
-  } catch (error) {
-    console.error("Products GET error:", error);
-    // Check if products table doesn't exist yet
-    if (error.message?.includes('relation') || error.code === '42P01') {
-      return Response.json({ 
-        error: "Products table not initialized. Please run the database schema migration." 
-      }, { status: 503 });
-    }
-    return Response.json({ error: "Failed to fetch products" }, { status: 500 });
-  }
+   } catch (error) {
+     console.error("Products GET error:", error);
+     // Don't leak internal DB details to client
+     return Response.json({ error: "Failed to fetch products" }, { status: 500 });
+   }
 }

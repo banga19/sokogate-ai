@@ -52,15 +52,17 @@ export async function ensureProductsTable() {
     'CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku)',
   ];
 
-  try {
-    await productPool.query(createTableSQL);
-    for (const idxSQL of createIndexesSQL) {
-      await productPool.query(idxSQL).catch(() => {}); // ignore index errors
-    }
-    console.log('✅ Products table schema verified/created');
-  } catch (error) {
-    console.error('Failed to create products table:', error.message);
-  }
+   try {
+     await productPool.query(createTableSQL);
+     for (const idxSQL of createIndexesSQL) {
+       await productPool.query(idxSQL).catch(err => {
+         console.warn('Index creation failed (may already exist):', err.message);
+       });
+     }
+     console.log('✅ Products table schema verified/created');
+   } catch (error) {
+     console.error('Failed to create products table:', error.message);
+   }
 }
 
 /**
@@ -102,22 +104,27 @@ export async function queryProducts(query, params = []) {
  * @returns {Promise<any>}
  */
 export async function transactionProducts(fn) {
-  if (!productPool) {
-    throw new Error('Product database not configured');
-  }
-  const client = await productPool.connect();
-  try {
-    await client.query('BEGIN');
-    const result = await fn(client);
-    await client.query('COMMIT');
-    return result;
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
-}
+   if (!productPool) {
+     throw new Error('Product database not configured');
+   }
+   const client = await productPool.connect();
+   try {
+     await client.query('BEGIN');
+     const result = await fn(client);
+     await client.query('COMMIT');
+     return result;
+   } catch (err) {
+     try {
+       await client.query('ROLLBACK');
+     } catch (rollbackErr) {
+       console.error('Product transaction rollback failed:', rollbackErr);
+     }
+     console.error('Product transaction error:', err);
+     throw err;
+   } finally {
+     client.release();
+   }
+ }
 
 export { productPool };
 

@@ -31,6 +31,7 @@ import {
   Plus,
   Building,
   Handshake,
+  Upload,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -42,11 +43,15 @@ import {
   ResponsiveContainer,
   CartesianGrid,
   Legend,
+  PieChart,
+  Pie,
+  Cell,
 } from "recharts";
 import { User, LogOut } from "lucide-react";
 import { useUser } from "@/contexts/AuthContext";
 import useAuth from "@/utils/useAuth";
 import { useRealtimeLeads } from "@/utils/useRealtimeLeads";
+import LeadImportModal from "@/components/LeadImportModal";
 
 const fetchLeads = async () => {
   const res = await fetch("/api/leads");
@@ -887,8 +892,9 @@ export default function DashboardPage() {
    const [filterStatus, setFilterStatus] = useState("All");
    const [selectedLead, setSelectedLead] = useState(null);
    const [activeTab, setActiveTab] = useState("leads"); // leads | analytics
-   const [showCreateModal, setShowCreateModal] = useState(false);
-   const [newLead, setNewLead] = useState({
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [showImportModal, setShowImportModal] = useState(false);
+    const [newLead, setNewLead] = useState({
      name: "",
      email: "",
      phone: "",
@@ -1034,12 +1040,38 @@ export default function DashboardPage() {
       ? Math.round((analytics.totals.qualified / analytics.totals.total) * 100)
       : 0;
 
-  const whatsappRate =
-    analytics?.totals?.total > 0
-      ? Math.round(
-          (analytics.totals.with_whatsapp / analytics.totals.total) * 100,
-        )
-      : 0;
+   const whatsappRate =
+     analytics?.totals?.total > 0
+       ? Math.round(
+           (analytics.totals.with_whatsapp / analytics.totals.total) * 100,
+         )
+       : 0;
+
+   // Compute category distribution
+   const categoryDistribution =
+     leads?.reduce((acc, lead) => {
+       const cat = lead.category || 'Uncategorized';
+       acc[cat] = (acc[cat] || 0) + 1;
+       return acc;
+     }, {}) || {};
+
+   const categoryChartData = Object.entries(categoryDistribution)
+     .map(([name, value]) => ({ name, value }))
+     .sort((a, b) => b.value - a.value)
+     .slice(0, 8);
+
+   // Compute source distribution
+   const sourceDistribution =
+     leads?.reduce((acc, lead) => {
+       const src = lead.source || 'unknown';
+       acc[src] = (acc[src] || 0) + 1;
+       return acc;
+     }, {}) || {};
+
+   const sourceChartData = Object.entries(sourceDistribution).map(([name, value]) => ({
+     name,
+     value,
+   }));
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
@@ -1178,6 +1210,13 @@ export default function DashboardPage() {
           newLead={newLead}
           setNewLead={setNewLead}
           createLeadMutation={createLeadMutation}
+        />
+        <LeadImportModal
+          isOpen={showImportModal}
+          onClose={() => setShowImportModal(false)}
+          onSuccess={() => {
+            // Additional refresh if needed
+          }}
         />
          {/* Header */}
          <header className="bg-white border-b border-slate-200 px-8 py-4 flex flex-wrap justify-between items-center gap-4 sticky top-0 z-10">
@@ -1391,16 +1430,22 @@ export default function DashboardPage() {
                   </p>
                 </div>
 
-                <div className="flex gap-2 flex-wrap items-center">
-                  <button
-                    onClick={() => setShowCreateModal(true)}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-colors hover:opacity-90"
-                    style={{ backgroundColor: PRIMARY, color: "white" }}
-                  >
-                    <Plus size={14} /> Add new lead
-                  </button>
+                 <div className="flex gap-2 flex-wrap items-center">
+                   <button
+                     onClick={() => setShowCreateModal(true)}
+                     className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-colors hover:opacity-90"
+                     style={{ backgroundColor: PRIMARY, color: "white" }}
+                   >
+                     <Plus size={14} /> Add new lead
+                   </button>
+                   <button
+                     onClick={() => setShowImportModal(true)}
+                     className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-colors hover:opacity-90 bg-green-600 text-white"
+                   >
+                     <Upload size={14} /> Import Contacts
+                   </button>
 
-                  <div className="flex gap-2 flex-wrap">
+                   <div className="flex gap-2 flex-wrap">
                     {["All", "New", "Qualified", "Closed"].map((status) => (
                       <button
                         key={status}
@@ -1762,11 +1807,96 @@ export default function DashboardPage() {
                         </div>
                       );
                     })}
+                   </div>
+                 </div>
+                </div>
+
+                {/* Category & Source Distribution */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Category Distribution */}
+                  <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+                    <h3 className="font-black text-slate-800 mb-4">Lead Categories</h3>
+                    {categoryChartData.length > 0 ? (
+                      <div className="space-y-3">
+                        {categoryChartData.slice(0, 5).map((cat, idx) => {
+                          const total = leads?.length || 1;
+                          const pct = Math.round((cat.value / total) * 100);
+                          const colors = [
+                            SECONDARY, "#F59E0B", "#10B981",
+                            "#6366F1", "#EC4899", "#8B5CF6", "#14B8A6", "#F97316"
+                          ];
+                          return (
+                            <div key={cat.name}>
+                              <div className="flex justify-between text-xs font-bold mb-1">
+                                <span className="truncate max-w-[120px]" title={cat.name}>
+                                  {cat.name}
+                                </span>
+                                <span>{cat.value} ({pct}%)</span>
+                              </div>
+                              <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full rounded-full transition-all"
+                                  style={{
+                                    width: `${pct}%`,
+                                    backgroundColor: colors[idx % colors.length],
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="py-8 text-center text-slate-300">
+                        <Tag size={32} className="mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">No category data yet</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Source Distribution */}
+                  <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+                    <h3 className="font-black text-slate-800 mb-4">Lead Sources</h3>
+                    {sourceChartData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={180}>
+                        <PieChart>
+                          <Pie
+                            data={sourceChartData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={40}
+                            outerRadius={70}
+                            paddingAngle={2}
+                            dataKey="value"
+                          >
+                            {sourceChartData.map((entry, index) => {
+                              const colors = [PRIMARY, SECONDARY, "#10B981", "#F59E0B", "#6366F1"];
+                              return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
+                            })}
+                          </Pie>
+                          <Tooltip
+                            contentStyle={{
+                              borderRadius: "12px",
+                              border: "1px solid #e2e8f0",
+                              fontSize: "12px",
+                            }}
+                          />
+                          <Legend
+                            wrapperStyle={{ fontSize: "11px", paddingTop: "8px" }}
+                            formatter={(value) => <span className="text-slate-600 text-xs">{value}</span>}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="py-8 text-center text-slate-300">
+                        <Globe size={32} className="mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">No source data yet</p>
+                      </div>
+                    )}
                   </div>
                 </div>
-               </div>
-             </div>
-           )}
+              </div>
+            )}
 
            {/* Prospects Tab */}
            {activeTab === "prospects" && (

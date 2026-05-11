@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS weekly_metrics (
   notes TEXT,
   recorded_at DATE DEFAULT NOW(),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMestamp WITH TIME ZONE DEFAULT NOW()
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Create a unique constraint to prevent duplicate metric entries per week
@@ -138,6 +138,15 @@ CREATE INDEX IF NOT EXISTS idx_metrics_created_at ON weekly_metrics(created_at D
 -- ============================================
 -- 8. TRIGGERS FOR UPDATED_AT
 -- ============================================
+-- First, create the trigger function if it doesn't exist
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE TRIGGER IF NOT EXISTS update_sales_prospects_updated_at
   BEFORE UPDATE ON sales_prospects
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

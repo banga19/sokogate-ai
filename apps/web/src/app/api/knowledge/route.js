@@ -52,23 +52,26 @@ export async function POST(request) {
       );
     }
 
-    if (id) {
-      // Update existing
-      const [result] = await sql`
-        UPDATE knowledge_base
-        SET category = ${category},
-            question = ${question || null},
-            answer = ${answer},
-            tags = ${tags || null},
-            priority = ${priority || 0},
-            is_active = ${is_active !== false},
-            updated_by = ${updated_by || 'admin'},
-            last_updated = NOW()
-        WHERE id = ${id}
-        RETURNING *
-      `;
-      return Response.json({ knowledge: result[0], action: "updated" });
-    } else {
+     if (id) {
+       // Update existing
+       const [result] = await sql`
+         UPDATE knowledge_base
+         SET category = ${category},
+             question = ${question || null},
+             answer = ${answer},
+             tags = ${tags || null},
+             priority = ${priority || 0},
+             is_active = ${is_active !== false},
+             updated_by = ${updated_by || 'admin'},
+             last_updated = NOW()
+         WHERE id = ${id}
+         RETURNING *
+       `;
+       if (!result[0]) {
+         return Response.json({ error: "Knowledge entry not found" }, { status: 404 });
+       }
+       return Response.json({ knowledge: result[0], action: "updated" });
+     } else {
       // Insert new
       const [result] = await sql`
         INSERT INTO knowledge_base (category, question, answer, tags, priority, is_active, updated_by)
@@ -93,7 +96,10 @@ export async function DELETE(request) {
       return Response.json({ error: "ID required" }, { status: 400 });
     }
 
-    await sql`DELETE FROM knowledge_base WHERE id = ${id}`;
+    const result = await sql`DELETE FROM knowledge_base WHERE id = ${id} RETURNING id`;
+    if (result.length === 0) {
+      return Response.json({ error: "Knowledge entry not found" }, { status: 404 });
+    }
     return Response.json({ success: true, action: "deleted" });
   } catch (error) {
     console.error("Error deleting knowledge base entry:", error);

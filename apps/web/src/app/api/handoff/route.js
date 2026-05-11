@@ -12,42 +12,40 @@ export async function POST(request) {
       );
     }
 
-    // Create handoff record
-    const [result] = await sql`
-      INSERT INTO handoff_requests (
-        lead_id,
-        visitor_id,
-        reason,
-        urgency,
-        status
-      )
-      VALUES (
-        ${leadId || null},
-        ${visitorId || null},
-        ${reason || "Requested human assistance"},
-        ${urgency},
-        'pending'
-      )
-      RETURNING *
-    `;
+    // Create handoff record and optionally update lead in a single transaction
+    const [result] = await sql.transaction(async (client) => {
+      // Insert handoff request
+      const handoffRes = await client.query(
+        `INSERT INTO handoff_requests (lead_id, visitor_id, reason, urgency, status)
+         VALUES ($1, $2, $3, $4, 'pending')
+         RETURNING *`,
+        [leadId || null, visitorId || null, reason || "Requested human assistance", urgency]
+      );
+      const handoff = handoffRes.rows[0];
 
-    // If lead_id provided, update lead's handoff_requested flag
-    if (leadId) {
-      await sql`
-        UPDATE leads
-        SET handoff_requested = TRUE,
-            conversation_stage = 'handoff_requested',
-            status = 'Qualified'
-        WHERE id = ${leadId}
-      `;
-    }
+      // If lead_id provided, update lead's handoff_requested flag
+      if (leadId) {
+        const updateRes = await client.query(
+          `UPDATE leads
+           SET handoff_requested = TRUE,
+               conversation_stage = 'handoff_requested',
+               status = 'Qualified'
+           WHERE id = $1`,
+          [leadId]
+        );
+        if (updateRes.rowCount === 0) {
+          throw new Error("Lead not found during handoff update");
+        }
+      }
+
+      return handoff;
+    });
 
     // Emit real-time event for dashboard notifications
-    // (Assuming serverEvents is available - may need adjustment)
     try {
       const serverEvents = (await import("@/server/pubsub")).serverEvents;
       if (serverEvents?.emitHandoff) {
-        serverEvents.emitHandoff(result[0]);
+        serverEvents.emitHandoff(result);
       }
     } catch (e) {
       console.warn("Could not emit handoff event:", e);
@@ -55,7 +53,7 @@ export async function POST(request) {
 
     return Response.json({
       success: true,
-      handoffId: result[0].id,
+      handoffId: result.id,
       message: "Human agent will be notified and assist you shortly",
     });
   } catch (error) {
@@ -73,7 +71,16 @@ export async function GET(request) {
     const status = searchParams.get("status") || "pending";
     const limit = parseInt(searchParams.get("limit") || "50");
 
-    const query = `
+    // Validate status
+    const allowedStatus = ["pending", "in_progress", "resolved", "cancelled"];
+    if (!allowedStatus.includes(status)) {
+      return Response.json({ error: "Invalid status" }, { status: 400 });
+    }
+
+    // Sanitize limit
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+
+    const requests = await sql`
       SELECT h.*, l.name as lead_name, l.email, l.whatsapp, l.category, l.score
       FROM handoff_requests h
       LEFT JOIN leads l ON h.lead_id = l.id
@@ -86,10 +93,8 @@ export async function GET(request) {
           ELSE 2
         END,
         h.created_at DESC
-      LIMIT ${limit}
+      LIMIT ${safeLimit}
     `;
-
-    const requests = await sql(query);
 
     return Response.json({ requests });
   } catch (error) {

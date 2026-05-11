@@ -63,14 +63,27 @@ export async function PATCH(request) {
   try {
     const { id, ...updates } = await request.json();
 
-    const setClause = Object.keys(updates)
-      .map((key, index) => `${key} = $${index + 1}`)
-      .join(", ");
-    const values = Object.values(updates);
+    // Whitelist allowed fields to prevent SQL injection
+    const ALLOWED_FIELDS = [
+      'investor_name', 'fund_name', 'tier', 'ticket_size_usd_min',
+      'ticket_size_usd_max', 'geographic_focus', 'investment_thesis',
+      'contact_name', 'email', 'phone', 'decision_timeline_weeks',
+      'first_contact_date', 'status', 'meetings_count', 'term_sheet_date',
+      'amount_committed_usd', 'valuation_pre_money_usd', 'notes'
+    ];
 
-    if (!setClause) {
-      return Response.json({ error: "No fields to update" }, { status: 400 });
+    const filteredUpdates = Object.entries(updates).filter(([key]) =>
+      ALLOWED_FIELDS.includes(key)
+    );
+
+    if (filteredUpdates.length === 0) {
+      return Response.json({ error: "No valid fields to update" }, { status: 400 });
     }
+
+    const setClause = filteredUpdates
+      .map(([key, _], index) => `${key} = $${index + 1}`)
+      .join(", ");
+    const values = filteredUpdates.map(([, value]) => value);
 
     const updated = await sql`
       UPDATE investors

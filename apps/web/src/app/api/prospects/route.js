@@ -57,15 +57,27 @@ export async function PATCH(request) {
   try {
     const { id, ...updates } = await request.json();
 
-    // Build dynamic UPDATE statement
-    const setClause = Object.keys(updates)
-      .map((key, index) => `${key} = $${index + 1}`)
-      .join(", ");
-    const values = Object.values(updates);
+    // Whitelist allowed fields to prevent SQL injection
+    const ALLOWED_FIELDS = [
+      'company', 'contact_name', 'email', 'phone', 'whatsapp',
+      'tier', 'location', 'annual_spend_kes', 'pain_point',
+      'engagement_angle', 'decision_maker_title', 'status',
+      'next_action_date', 'last_contact_date', 'notes'
+    ];
 
-    if (!setClause) {
-      return Response.json({ error: "No fields to update" }, { status: 400 });
+    const filteredUpdates = Object.entries(updates).filter(([key]) =>
+      ALLOWED_FIELDS.includes(key)
+    );
+
+    if (filteredUpdates.length === 0) {
+      return Response.json({ error: "No valid fields to update" }, { status: 400 });
     }
+
+    // Build parameterized UPDATE with safe column names
+    const setClause = filteredUpdates
+      .map(([key, _], index) => `${key} = $${index + 1}`)
+      .join(", ");
+    const values = filteredUpdates.map(([, value]) => value);
 
     const updated = await sql`
       UPDATE sales_prospects

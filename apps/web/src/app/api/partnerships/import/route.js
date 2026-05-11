@@ -3,7 +3,8 @@ import { parseCSV, mapPartnershipRow } from "@/utils/csvImport";
 import { readFile } from "fs/promises";
 import path from "path";
 
-const CSV_PATH = path.join(process.cwd(), "../../../sales-and-funding-assets");
+// Absolute path to sales-and-funding-assets (WSL2 Ubuntu)
+const CSV_PATH = "/home/apop/sales-and-funding-assets";
 
 export async function GET() {
   return Response.json({ message: "Import endpoint for partnerships" });

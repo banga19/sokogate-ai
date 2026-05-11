@@ -193,14 +193,71 @@ export function generateInitialMetrics() {
 }
 
 /**
- * Import CSV data to database via fetch
+ * Map CSV row to lead object
+ * Expected headers (case-insensitive):
+ *   name, email, phone, whatsapp, message, score (High/Medium/Low),
+ *   intent_summary, category, keyword_score (High/Medium/Low), source
+ */
+export function mapLeadRow(row) {
+  // Normalize score values
+  const normalizeScore = (val) => {
+    const v = (val || '').toLowerCase();
+    if (v === 'high') return 'High';
+    if (v === 'medium') return 'Medium';
+    return 'Low';
+  };
+
+  return {
+    name: row.NAME || row.name || '',
+    email: row.EMAIL || row.email || '',
+    phone: row.PHONE || row.phone || '',
+    whatsapp: row.WHATSAPP || row.whatsapp || '',
+    message: row.MESSAGE || row.message || '',
+    score: normalizeScore(row.SCORE || row.score) || 'Medium',
+    intent_summary: row.INTENT_SUMMARY || row.intent_summary || '',
+    category: row.CATEGORY || row.category || '',
+    keyword_score: normalizeScore(row.KEYWORD_SCORE || row.keyword_score) || 'Low',
+    source: row.SOURCE || row.source || 'csv_import',
+    status: 'New', // default status for imported leads
+  };
+}
+
+/**
+ * Validate a lead object
+ * @returns {string|null} Error message if invalid, null if valid
+ */
+export function validateLead(lead, rowNumber) {
+  if (!lead.name || lead.name.trim() === '') {
+    return `Row ${rowNumber}: Name is required`;
+  }
+  if (!lead.email || lead.email.trim() === '') {
+    return `Row ${rowNumber}: Email is required`;
+  }
+  // Basic email format validation
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(lead.email)) {
+    return `Row ${rowNumber}: Invalid email format (${lead.email})`;
+  }
+  // Validate score enum
+  if (!['High', 'Medium', 'Low'].includes(lead.score)) {
+    return `Row ${rowNumber}: Invalid score '${lead.score}' (must be High, Medium, or Low)`;
+  }
+  return null;
+}
+
+/**
+ * Import CSV data to database via fetch (existing generic importer)
  */
 export async function importCSVToTable(csvText, tableType, apiEndpoint) {
   const parsed = parseCSV(csvText);
   let successCount = 0;
   let errorCount = 0;
+  const errors = [];
 
-  for (const row of parsed) {
+  for (let i = 0; i < parsed.length; i++) {
+    const row = parsed[i];
+    const rowNum = i + 2; // account for header row
+
     try {
       let mapped;
       switch (tableType) {
@@ -212,6 +269,15 @@ export async function importCSVToTable(csvText, tableType, apiEndpoint) {
           break;
         case 'partnerships':
           mapped = mapPartnershipRow(row);
+          break;
+        case 'leads':
+          mapped = mapLeadRow(row);
+          const validationError = validateLead(mapped, rowNum);
+          if (validationError) {
+            errorCount++;
+            errors.push(validationError);
+            continue;
+          }
           break;
         default:
           throw new Error(`Unknown table type: ${tableType}`);
@@ -227,13 +293,14 @@ export async function importCSVToTable(csvText, tableType, apiEndpoint) {
         successCount++;
       } else {
         errorCount++;
-        console.warn(`Failed to import row:`, row, await response.text());
+        const errorText = await response.text();
+        errors.push(`Row ${rowNum}: ${errorText || 'Failed to import'}`);
       }
     } catch (err) {
       errorCount++;
-      console.error('Import error:', err);
+      errors.push(`Row ${rowNum}: ${err.message}`);
     }
   }
 
-  return { successCount, errorCount, total: parsed.length };
+  return { successCount, errorCount, total: parsed.length, errors };
 }

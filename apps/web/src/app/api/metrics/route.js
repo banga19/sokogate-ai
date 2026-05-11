@@ -1,6 +1,6 @@
 import sql from "@/app/api/utils/sql";
 
-export async function GET() {
+export async function GET(request) {
   try {
     // Return all metrics, optionally filtered by week or date range via query params
     const { searchParams } = new URL(request.url);
@@ -25,7 +25,7 @@ export async function GET() {
     }
     query += " ORDER BY week_number DESC, created_at DESC";
 
-    const metrics = await sql[query](...values);
+    const metrics = await sql(query, values);
     return Response.json(metrics);
   } catch (error) {
     console.error("Failed to fetch metrics:", error);
