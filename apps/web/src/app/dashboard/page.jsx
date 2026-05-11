@@ -29,6 +29,8 @@ import {
   Truck,
   Package,
   Plus,
+  Building,
+  Handshake,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -561,6 +563,82 @@ function CreateLeadModal({ show, onClose, newLead, setNewLead, createLeadMutatio
         </div>
       </div>
     </div>
+   );
+}
+
+// --- New Components for Sales & Funding Module ---
+
+// Tier badge for T1-T9
+function TierBadge({ tier }) {
+  if (!tier) return null;
+  const t = tier.toUpperCase();
+  const colorMap = {
+    T1: "bg-amber-100 text-amber-700 border-amber-200",
+    T2: "bg-blue-100 text-blue-700 border-blue-200",
+    T3: "bg-green-100 text-green-700 border-green-200",
+    T4: "bg-purple-100 text-purple-700 border-purple-200",
+    T5: "bg-pink-100 text-pink-700 border-pink-200",
+    T6: "bg-indigo-100 text-indigo-700 border-indigo-200",
+    T7: "bg-orange-100 text-orange-700 border-orange-200",
+    T8: "bg-teal-100 text-teal-700 border-teal-200",
+    T9: "bg-cyan-100 text-cyan-700 border-cyan-200",
+  };
+  const classes = colorMap[t] || "bg-slate-100 text-slate-700 border-slate-200";
+  return (
+    <span className={`inline-flex items-center justify-center px-2 py-1 rounded-lg text-[10px] font-black uppercase border ${classes}`}>
+      {t}
+    </span>
+  );
+}
+
+// Prospect status select
+function ProspectStatusSelect({ value, onChange, isPending }) {
+  const options = ["Not Started", "Contacted", "Responded", "Negotiating", "Closed Won", "Closed Lost"];
+  return (
+    <select
+      value={value || "Not Started"}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={isPending}
+      className="text-xs font-bold rounded-lg px-2 py-1.5 border focus:outline-none cursor-pointer transition-colors bg-white"
+    >
+      {options.map(opt => (
+        <option key={opt} value={opt}>{opt}</option>
+      ))}
+    </select>
+  );
+}
+
+// Investor status select
+function InvestorStatusSelect({ value, onChange, isPending }) {
+  const options = ["Not Started", "Meeting Scheduled", "Term Sheet", "Closed"];
+  return (
+    <select
+      value={value || "Not Started"}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={isPending}
+      className="text-xs font-bold rounded-lg px-2 py-1.5 border focus:outline-none cursor-pointer transition-colors bg-white"
+    >
+      {options.map(opt => (
+        <option key={opt} value={opt}>{opt}</option>
+      ))}
+    </select>
+  );
+}
+
+// Partnership status select
+function PartnershipStatusSelect({ value, onChange, isPending }) {
+  const options = ["Not Contacted", "Discovery Call", "Proposal Sent", "Signed", "Pilot", "Active", "Closed"];
+  return (
+    <select
+      value={value || "Not Contacted"}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={isPending}
+      className="text-xs font-bold rounded-lg px-2 py-1.5 border focus:outline-none cursor-pointer transition-colors bg-white"
+    >
+      {options.map(opt => (
+        <option key={opt} value={opt}>{opt}</option>
+      ))}
+    </select>
   );
 }
 
@@ -570,14 +648,15 @@ export default function DashboardPage() {
   const { signOut } = useAuth();
   const queryClient = useQueryClient();
   // Connect to real-time WebSocket for live updates
-  useRealtimeLeads();
+   useRealtimeLeads();
 
-  const { data: leads = [], isLoading } = useQuery({
-    queryKey: ["leads"],
-    queryFn: fetchLeads,
-    retry: false,
-  });
-  const { data: analytics } = useQuery({
+   const { data: leads = [], isLoading } = useQuery({
+     queryKey: ["leads"],
+     queryFn: fetchLeads,
+     retry: false,
+   });
+
+   const { data: analytics } = useQuery({
     queryKey: ["analytics"],
     queryFn: fetchAnalytics,
     retry: false,
@@ -623,60 +702,271 @@ export default function DashboardPage() {
     },
   });
 
-  const createLeadMutation = useMutation({
-    mutationFn: async (leadData) => {
-      const res = await fetch("/api/leads", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(leadData),
-      });
-      if (!res.ok) throw new Error("Failed to create lead");
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["leads"] });
-      queryClient.invalidateQueries({ queryKey: ["analytics"] });
-      setShowCreateModal(false);
-      setNewLead({
-        name: "",
-        email: "",
-        phone: "",
-        whatsapp: "",
-        category: "",
-        intent_summary: "",
-        message: "",
-        score: "Medium",
-      });
-    },
-  });
+   const createLeadMutation = useMutation({
+      mutationFn: async (leadData) => {
+        const res = await fetch("/api/leads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(leadData),
+        });
+        if (!res.ok) throw new Error("Failed to create lead");
+        return res.json();
+      },
+      onSuccess: async (newLead) => {
+        await queryClient.cancelQueries({ queryKey: ["leads"] });
+        queryClient.setQueryData(['leads'], (old = []) => [newLead, ...(old || []).filter(l => l.id !== newLead.id)]);
+        queryClient.invalidateQueries({ queryKey: ["leads"] });
+        queryClient.invalidateQueries({ queryKey: ["analytics"] });
+        setShowCreateModal(false);
+        setNewLead({
+          name: "",
+          email: "",
+          phone: "",
+          whatsapp: "",
+          category: "",
+          intent_summary: "",
+          message: "",
+          score: "Medium",
+        });
+      },
+      onError: (err) => {
+        console.error('[CreateLead] Mutation error:', err);
+       },
+     });
 
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filterStatus, setFilterStatus] = useState("All");
-  const [selectedLead, setSelectedLead] = useState(null);
-  const [activeTab, setActiveTab] = useState("leads"); // leads | analytics
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newLead, setNewLead] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    whatsapp: "",
-    category: "",
-    intent_summary: "",
-    message: "",
-    score: "Medium",
-  });
+    // Data fetching for prospects, investors, partnerships, metrics
+    const { data: prospects = [], isLoading: isLoadingProspects } = useQuery({
+      queryKey: ["prospects"],
+      queryFn: async () => {
+        const res = await fetch("/api/prospects");
+        if (!res.ok) throw new Error("Failed to fetch prospects");
+        return res.json();
+      },
+      retry: false,
+    });
 
-  const filteredLeads = leads.filter((lead) => {
-    const matchesSearch =
-      lead.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      lead.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      lead.phone?.includes(searchTerm);
-    const matchesFilter =
-      filterStatus === "All" || lead.status === filterStatus;
-    return matchesSearch && matchesFilter;
-  });
+    const { data: investors = [], isLoading: isLoadingInvestors } = useQuery({
+      queryKey: ["investors"],
+      queryFn: async () => {
+        const res = await fetch("/api/investors");
+        if (!res.ok) throw new Error("Failed to fetch investors");
+        return res.json();
+      },
+      retry: false,
+    });
 
-  const stats = {
+    const { data: partnerships = [], isLoading: isLoadingPartnerships } = useQuery({
+      queryKey: ["partnerships"],
+      queryFn: async () => {
+        const res = await fetch("/api/partnerships");
+        if (!res.ok) throw new Error("Failed to fetch partnerships");
+        return res.json();
+      },
+      retry: false,
+    });
+
+    const { data: metrics = [], isLoading: isLoadingMetrics } = useQuery({
+      queryKey: ["metrics"],
+      queryFn: async () => {
+        const res = await fetch("/api/metrics");
+        if (!res.ok) throw new Error("Failed to fetch metrics");
+        return res.json();
+      },
+      retry: false,
+    });
+
+    // Mutations for updates
+    const updateProspectMutation = useMutation({
+      mutationFn: async ({ id, ...updates }) => {
+        const res = await fetch("/api/prospects", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, ...updates }),
+        });
+        if (!res.ok) throw new Error("Failed to update prospect");
+        return res.json();
+      },
+      onSuccess: (updated) => {
+        queryClient.setQueryData(['prospects'], old => old.map(p => p.id === updated.id ? updated : p));
+      },
+    });
+
+    const updateInvestorMutation = useMutation({
+      mutationFn: async ({ id, ...updates }) => {
+        const res = await fetch("/api/investors", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, ...updates }),
+        });
+        if (!res.ok) throw new Error("Failed to update investor");
+        return res.json();
+      },
+      onSuccess: (updated) => {
+        queryClient.setQueryData(['investors'], old => old.map(i => i.id === updated.id ? updated : i));
+      },
+    });
+
+    const updatePartnershipMutation = useMutation({
+      mutationFn: async ({ id, ...updates }) => {
+        const res = await fetch("/api/partnerships", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, ...updates }),
+        });
+        if (!res.ok) throw new Error("Failed to update partnership");
+        return res.json();
+      },
+      onSuccess: (updated) => {
+        queryClient.setQueryData(['partnerships'], old => old.map(p => p.id === updated.id ? updated : p));
+      },
+    });
+
+    const updateMetricMutation = useMutation({
+      mutationFn: async ({ id, ...updates }) => {
+        const res = await fetch("/api/metrics", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, ...updates }),
+        });
+        if (!res.ok) throw new Error("Failed to update metric");
+        return res.json();
+      },
+      onSuccess: (updated) => {
+        queryClient.setQueryData(['metrics'], old => old.map(m => m.id === updated.id ? updated : m));
+      },
+    });
+
+    // Import mutations
+    const importProspectsMutation = useMutation({
+      mutationFn: async () => {
+        const res = await fetch("/api/prospects/import", { method: "POST" });
+        if (!res.ok) throw new Error("Import failed");
+        return res.json();
+      },
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ["prospects"] });
+      },
+    });
+
+    const importInvestorsMutation = useMutation({
+      mutationFn: async () => {
+        const res = await fetch("/api/investors/import", { method: "POST" });
+        if (!res.ok) throw new Error("Import failed");
+        return res.json();
+      },
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ["investors"] });
+      },
+    });
+
+    const importPartnershipsMutation = useMutation({
+      mutationFn: async () => {
+        const res = await fetch("/api/partnerships/import", { method: "POST" });
+        if (!res.ok) throw new Error("Import failed");
+        return res.json();
+      },
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ["partnerships"] });
+      },
+    });
+
+    const importMetricsMutation = useMutation({
+      mutationFn: async () => {
+        const res = await fetch("/api/metrics/import", { method: "POST" });
+        if (!res.ok) throw new Error("Import failed");
+        return res.json();
+      },
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ["metrics"] });
+      },
+    });
+
+    // Existing state...
+
+   const [searchTerm, setSearchTerm] = useState("");
+   const [filterStatus, setFilterStatus] = useState("All");
+   const [selectedLead, setSelectedLead] = useState(null);
+   const [activeTab, setActiveTab] = useState("leads"); // leads | analytics
+   const [showCreateModal, setShowCreateModal] = useState(false);
+   const [newLead, setNewLead] = useState({
+     name: "",
+     email: "",
+     phone: "",
+     whatsapp: "",
+     category: "",
+     intent_summary: "",
+     message: "",
+     score: "Medium",
+   });
+
+   // Prospects state
+   const [searchProspects, setSearchProspects] = useState("");
+   const [filterProspectStatus, setFilterProspectStatus] = useState("All");
+   const [selectedProspect, setSelectedProspect] = useState(null);
+
+   // Investors state
+   const [searchInvestors, setSearchInvestors] = useState("");
+   const [filterInvestorStatus, setFilterInvestorStatus] = useState("All");
+   const [selectedInvestor, setSelectedInvestor] = useState(null);
+
+   // Partnerships state
+   const [searchPartnerships, setSearchPartnerships] = useState("");
+   const [filterPartnershipStatus, setFilterPartnershipStatus] = useState("All");
+   const [selectedPartnership, setSelectedPartnership] = useState(null);
+
+   // Metrics state (search by metric name)
+   const [searchMetrics, setSearchMetrics] = useState("");
+
+   const filteredLeads = leads.filter((lead) => {
+     const matchesSearch =
+       lead.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+       lead.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+       lead.phone?.includes(searchTerm);
+     const matchesFilter =
+       filterStatus === "All" || lead.status === filterStatus;
+     return matchesSearch && matchesFilter;
+   });
+
+   // Prospects filter
+   const filteredProspects = prospects.filter((p) => {
+     const matchesSearch =
+       p.company?.toLowerCase().includes(searchProspects.toLowerCase()) ||
+       p.contact_name?.toLowerCase().includes(searchProspects.toLowerCase()) ||
+       p.email?.toLowerCase().includes(searchProspects.toLowerCase());
+     const matchesFilter =
+       filterProspectStatus === "All" || p.status === filterProspectStatus;
+     return matchesSearch && matchesFilter;
+   });
+
+   // Investors filter
+   const filteredInvestors = investors.filter((i) => {
+     const matchesSearch =
+       i.fund_name?.toLowerCase().includes(searchInvestors.toLowerCase()) ||
+       i.contact_name?.toLowerCase().includes(searchInvestors.toLowerCase()) ||
+       i.email?.toLowerCase().includes(searchInvestors.toLowerCase());
+     const matchesFilter =
+       filterInvestorStatus === "All" || i.status === filterInvestorStatus;
+     return matchesSearch && matchesFilter;
+   });
+
+   // Partnerships filter
+   const filteredPartnerships = partnerships.filter((p) => {
+     const matchesSearch =
+       p.company_name?.toLowerCase().includes(searchPartnerships.toLowerCase()) ||
+       p.contact_name?.toLowerCase().includes(searchPartnerships.toLowerCase()) ||
+       p.email?.toLowerCase().includes(searchPartnerships.toLowerCase());
+     const matchesFilter =
+       filterPartnershipStatus === "All" || p.status === filterPartnershipStatus;
+     return matchesSearch && matchesFilter;
+   });
+
+   // Metrics filter
+   const filteredMetrics = metrics.filter((m) => {
+     if (!searchMetrics) return true;
+     return m.metric_name?.toLowerCase().includes(searchMetrics.toLowerCase());
+   });
+
+   const stats = {
     total: leads.length,
     new: leads.filter((l) => l.status === "New").length,
     qualified: leads.filter((l) => l.status === "Qualified").length,
@@ -801,18 +1091,42 @@ export default function DashboardPage() {
           >
             <Home size={18} /> Home
           </a>
-          <a
-            href="/dashboard"
-            className="flex items-center gap-3 px-4 py-2.5 bg-white/15 rounded-xl text-white font-bold text-sm"
-          >
-            <LayoutDashboard size={18} /> Dashboard
-          </a>
-          <a
-            href="/settings"
-            className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/10 rounded-xl text-white/70 hover:text-white font-medium transition-colors text-sm"
-          >
-            <SettingsIcon size={18} /> Settings
-          </a>
+           <a
+             href="/dashboard"
+             className="flex items-center gap-3 px-4 py-2.5 bg-white/15 rounded-xl text-white font-bold text-sm"
+           >
+             <LayoutDashboard size={18} /> Dashboard
+           </a>
+           <button
+             onClick={() => setActiveTab("prospects")}
+             className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === "prospects" ? "bg-white/15 text-white font-bold" : "text-white/70 hover:text-white hover:bg-white/10"}`}
+           >
+             <Users size={18} /> Prospects
+           </button>
+           <button
+             onClick={() => setActiveTab("investors")}
+             className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === "investors" ? "bg-white/15 text-white font-bold" : "text-white/70 hover:text-white hover:bg-white/10"}`}
+           >
+             <Building size={18} /> Investors
+           </button>
+           <button
+             onClick={() => setActiveTab("partners")}
+             className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === "partners" ? "bg-white/15 text-white font-bold" : "text-white/70 hover:text-white hover:bg-white/10"}`}
+           >
+             <Handshake size={18} /> Partners
+           </button>
+           <button
+             onClick={() => setActiveTab("metrics")}
+             className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${activeTab === "metrics" ? "bg-white/15 text-white font-bold" : "text-white/70 hover:text-white hover:bg-white/10"}`}
+           >
+             <BarChart2 size={18} /> Metrics
+           </button>
+           <a
+             href="/settings"
+             className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/10 rounded-xl text-white/70 hover:text-white font-medium transition-colors text-sm"
+           >
+             <SettingsIcon size={18} /> Settings
+           </a>
         </nav>
 
         {/* Stats Sidebar Card */}
@@ -865,64 +1179,106 @@ export default function DashboardPage() {
           setNewLead={setNewLead}
           createLeadMutation={createLeadMutation}
         />
-        {/* Header */}
-        <header className="bg-white border-b border-slate-200 px-8 py-4 flex flex-wrap justify-between items-center gap-4 sticky top-0 z-10">
-          <div>
-            <h2 className="text-xl font-black text-slate-800">
-              Lead Command Center
-            </h2>
-            <p className="text-xs text-slate-400">
-              Sokogate AI · Ultimo Trading Ltd
-            </p>
-          </div>
-          <div className="flex items-center gap-3 flex-wrap">
-            {/* Tabs */}
-            <div className="flex bg-slate-100 rounded-xl p-1">
-              <button
-                onClick={() => setActiveTab("leads")}
-                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === "leads" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500"}`}
+         {/* Header */}
+         <header className="bg-white border-b border-slate-200 px-8 py-4 flex flex-wrap justify-between items-center gap-4 sticky top-0 z-10">
+           <div>
+             <h2 className="text-xl font-black text-slate-800">
+               {(() => {
+                  const titles = {
+                    leads: "Lead Command Center",
+                    analytics: "Analytics Dashboard",
+                    prospects: "Prospects Command Center",
+                    investors: "Investors Command Center",
+                    partners: "Partners Command Center",
+                    metrics: "Metrics Dashboard"
+                  };
+                  return titles[activeTab] || "Dashboard";
+               })()}
+             </h2>
+             <p className="text-xs text-slate-400">
+               Sokogate AI · Ultimo Trading Ltd
+             </p>
+           </div>
+           <div className="flex items-center gap-3 flex-wrap">
+             {/* Tabs */}
+             <div className="flex bg-slate-100 rounded-xl p-1 flex-wrap gap-1">
+               <button
+                 onClick={() => setActiveTab("leads")}
+                 className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === "leads" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500"}`}
+               >
+                 <Users size={12} className="inline mr-1" />
+                 Leads
+               </button>
+               <button
+                 onClick={() => setActiveTab("analytics")}
+                 className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === "analytics" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500"}`}
+               >
+                 <BarChart2 size={12} className="inline mr-1" />
+                 Analytics
+               </button>
+               <button
+                 onClick={() => setActiveTab("prospects")}
+                 className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === "prospects" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500"}`}
+               >
+                 <Users size={12} className="inline mr-1" />
+                 Prospects
+               </button>
+               <button
+                 onClick={() => setActiveTab("investors")}
+                 className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === "investors" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500"}`}
+               >
+                 <Building size={12} className="inline mr-1" />
+                 Investors
+               </button>
+               <button
+                 onClick={() => setActiveTab("partners")}
+                 className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === "partners" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500"}`}
+               >
+                 <Handshake size={12} className="inline mr-1" />
+                 Partners
+               </button>
+               <button
+                 onClick={() => setActiveTab("metrics")}
+                 className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === "metrics" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500"}`}
+               >
+                 <BarChart2 size={12} className="inline mr-1" />
+                 Metrics
+               </button>
+             </div>
+
+             {activeTab === "leads" && (
+               <>
+                 <div className="relative">
+                   <Search
+                     className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                     size={16}
+                   />
+                   <input
+                     type="text"
+                     placeholder="Search leads..."
+                     className="pl-9 pr-4 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 text-sm"
+                     style={{ "--tw-ring-color": PRIMARY }}
+                     value={searchTerm}
+                     onChange={(e) => setSearchTerm(e.target.value)}
+                   />
+                 </div>
+
+                 <button
+                   onClick={exportCSV}
+                   className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors"
+                 >
+                   <Download size={14} /> Export CSV
+                 </button>
+               </>
+             )}
+
+              <a
+                href="/"
+                className="flex items-center gap-2 px-4 py-2 text-white rounded-xl text-xs font-bold transition-colors"
+                style={{ backgroundColor: SECONDARY }}
               >
-                <Users size={12} className="inline mr-1" />
-                Leads
-              </button>
-              <button
-                onClick={() => setActiveTab("analytics")}
-                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${activeTab === "analytics" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500"}`}
-              >
-                <BarChart2 size={12} className="inline mr-1" />
-                Analytics
-              </button>
-            </div>
-
-            <div className="relative">
-              <Search
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                size={16}
-              />
-              <input
-                type="text"
-                placeholder="Search leads..."
-                className="pl-9 pr-4 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 text-sm"
-                style={{ "--tw-ring-color": PRIMARY }}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-
-            <button
-              onClick={exportCSV}
-              className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors"
-            >
-              <Download size={14} /> Export CSV
-            </button>
-
-             <a
-               href="/"
-               className="flex items-center gap-2 px-4 py-2 text-white rounded-xl text-xs font-bold transition-colors"
-               style={{ backgroundColor: SECONDARY }}
-             >
-               <Globe size={14} /> View Site
-             </a>
+                <Globe size={14} /> View Site
+              </a>
 
              {/* Auth Section */}
              {status === 'authenticated' && session?.user ? (
@@ -1408,9 +1764,459 @@ export default function DashboardPage() {
                     })}
                   </div>
                 </div>
-              </div>
-            </div>
-          )}
+               </div>
+             </div>
+           )}
+
+           {/* Prospects Tab */}
+           {activeTab === "prospects" && (
+             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+               <div className="p-5 border-b border-slate-100 flex flex-wrap justify-between items-center gap-3">
+                 <div>
+                   <h3 className="font-black text-slate-800">Sales Prospects</h3>
+                   <p className="text-xs text-slate-400">{filteredProspects.length} prospects shown</p>
+                 </div>
+                 <div className="flex gap-2 flex-wrap items-center">
+                   <button
+                     onClick={() => importProspectsMutation.mutate()}
+                     disabled={importProspectsMutation.isPending}
+                     className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-colors hover:opacity-90"
+                     style={{ backgroundColor: PRIMARY, color: "white" }}
+                   >
+                     <Download size={14} /> Import from CSV
+                   </button>
+                   <div className="flex gap-2 flex-wrap">
+                     {["All", "Not Started", "Contacted", "Responded", "Negotiating", "Closed Won", "Closed Lost"].map((status) => (
+                       <button
+                         key={status}
+                         onClick={() => setFilterProspectStatus(status)}
+                         className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                           filterProspectStatus === status
+                             ? "text-white shadow-sm"
+                             : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                         }`}
+                         style={filterProspectStatus === status ? { backgroundColor: PRIMARY } : {}}
+                       >
+                         {status}
+                       </button>
+                     ))}
+                   </div>
+                 </div>
+               </div>
+               {isLoadingProspects ? (
+                 <div className="py-20 text-center text-slate-400">
+                   <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full mx-auto mb-4 animate-spin" />
+                   <p>Loading prospects...</p>
+                 </div>
+               ) : (
+                 <div className="overflow-x-auto">
+                   <table className="w-full text-left">
+                     <thead>
+                       <tr className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-wider">
+                         <th className="px-6 py-3">Company</th>
+                         <th className="px-6 py-3">Contact</th>
+                         <th className="px-6 py-3">Tier</th>
+                         <th className="px-6 py-3">Location</th>
+                         <th className="px-6 py-3">Annual Spend (KES)</th>
+                         <th className="px-6 py-3">Status</th>
+                         <th className="px-6 py-3">Actions</th>
+                       </tr>
+                     </thead>
+                     <tbody className="divide-y divide-slate-50">
+                       {filteredProspects.map((prospect) => (
+                         <tr key={prospect.id} className="hover:bg-slate-50 transition-colors">
+                           <td className="px-6 py-4">
+                             <p className="font-bold text-slate-800 text-sm">{prospect.company || "—"}</p>
+                           </td>
+                           <td className="px-6 py-4">
+                             <div className="space-y-1">
+                               {prospect.contact_name && (
+                                 <p className="text-xs text-slate-600 font-medium">{prospect.contact_name}</p>
+                               )}
+                               {prospect.email && (
+                                 <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                                   <Mail size={11} className="text-blue-400" />
+                                   <span className="truncate max-w-[160px]">{prospect.email}</span>
+                                 </div>
+                               )}
+                               {prospect.phone && (
+                                 <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                                   <Phone size={11} className="text-green-500" />
+                                   <span>{prospect.phone}</span>
+                                 </div>
+                               )}
+                             </div>
+                           </td>
+                           <td className="px-6 py-4">
+                             <TierBadge tier={prospect.tier} />
+                           </td>
+                           <td className="px-6 py-4">
+                             <p className="text-xs text-slate-600">{prospect.location || "—"}</p>
+                           </td>
+                           <td className="px-6 py-4">
+                             <p className="text-xs font-bold text-slate-700">
+                               {prospect.annual_spend_kes ? prospect.annual_spend_kes.toLocaleString() : "—"}
+                             </p>
+                           </td>
+                           <td className="px-6 py-4" onClick={e => e.stopPropagation()}>
+                             <ProspectStatusSelect
+                               value={prospect.status}
+                               onChange={(status) => updateProspectMutation.mutate({ id: prospect.id, status })}
+                               isPending={updateProspectMutation.isPending}
+                             />
+                           </td>
+                           <td className="px-6 py-4">
+                             <button
+                               className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
+                               title="View details (coming soon)"
+                             >
+                               <ChevronRight size={14} className="text-slate-400" />
+                             </button>
+                           </td>
+                         </tr>
+                       ))}
+                     </tbody>
+                   </table>
+
+                   {filteredProspects.length === 0 && (
+                     <div className="py-20 text-center text-slate-400">
+                       <MessageSquare className="mx-auto mb-4 opacity-20" size={48} />
+                       <p className="font-medium">No prospects found.</p>
+                       <p className="text-xs mt-1">Import prospects from CSV to get started.</p>
+                     </div>
+                   )}
+                 </div>
+               )}
+             </div>
+           )}
+
+           {/* Investors Tab */}
+           {activeTab === "investors" && (
+             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+               <div className="p-5 border-b border-slate-100 flex flex-wrap justify-between items-center gap-3">
+                 <div>
+                   <h3 className="font-black text-slate-800">Investors</h3>
+                   <p className="text-xs text-slate-400">{filteredInvestors.length} investors shown</p>
+                 </div>
+                 <div className="flex gap-2 flex-wrap items-center">
+                   <button
+                     onClick={() => importInvestorsMutation.mutate()}
+                     disabled={importInvestorsMutation.isPending}
+                     className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-colors hover:opacity-90"
+                     style={{ backgroundColor: PRIMARY, color: "white" }}
+                   >
+                     <Download size={14} /> Import from CSV
+                   </button>
+                   <div className="flex gap-2 flex-wrap">
+                     {["All", "Not Started", "Meeting Scheduled", "Term Sheet", "Closed"].map((status) => (
+                       <button
+                         key={status}
+                         onClick={() => setFilterInvestorStatus(status)}
+                         className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                           filterInvestorStatus === status
+                             ? "text-white shadow-sm"
+                             : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                         }`}
+                         style={filterInvestorStatus === status ? { backgroundColor: PRIMARY } : {}}
+                       >
+                         {status}
+                       </button>
+                     ))}
+                   </div>
+                 </div>
+               </div>
+               {isLoadingInvestors ? (
+                 <div className="py-20 text-center text-slate-400">
+                   <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full mx-auto mb-4 animate-spin" />
+                   <p>Loading investors...</p>
+                 </div>
+               ) : (
+                 <div className="overflow-x-auto">
+                   <table className="w-full text-left">
+                     <thead>
+                       <tr className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-wider">
+                         <th className="px-6 py-3">Fund Name</th>
+                         <th className="px-6 py-3">Contact</th>
+                         <th className="px-6 py-3">Tier</th>
+                         <th className="px-6 py-3">Ticket Size</th>
+                         <th className="px-6 py-3">Region</th>
+                         <th className="px-6 py-3">Status</th>
+                         <th className="px-6 py-3">Actions</th>
+                       </tr>
+                     </thead>
+                     <tbody className="divide-y divide-slate-50">
+                       {filteredInvestors.map((investor) => (
+                         <tr key={investor.id} className="hover:bg-slate-50 transition-colors">
+                           <td className="px-6 py-4">
+                             <p className="font-bold text-slate-800 text-sm">{investor.fund_name || "—"}</p>
+                           </td>
+                           <td className="px-6 py-4">
+                             <div className="space-y-1">
+                               {investor.contact_name && (
+                                 <p className="text-xs text-slate-600 font-medium">{investor.contact_name}</p>
+                               )}
+                               {investor.email && (
+                                 <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                                   <Mail size={11} className="text-blue-400" />
+                                   <span className="truncate max-w-[160px]">{investor.email}</span>
+                                 </div>
+                               )}
+                               {investor.phone && (
+                                 <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                                   <Phone size={11} className="text-green-500" />
+                                   <span>{investor.phone}</span>
+                                 </div>
+                               )}
+                             </div>
+                           </td>
+                           <td className="px-6 py-4">
+                             <TierBadge tier={investor.tier} />
+                           </td>
+                           <td className="px-6 py-4">
+                             <p className="text-xs font-bold text-slate-700">{investor.ticket_size_usd || "—"}</p>
+                           </td>
+                           <td className="px-6 py-4">
+                             <p className="text-xs text-slate-600">{investor.geographic_focus || "—"}</p>
+                           </td>
+                           <td className="px-6 py-4" onClick={e => e.stopPropagation()}>
+                             <InvestorStatusSelect
+                               value={investor.status}
+                               onChange={(status) => updateInvestorMutation.mutate({ id: investor.id, status })}
+                               isPending={updateInvestorMutation.isPending}
+                             />
+                           </td>
+                           <td className="px-6 py-4">
+                             <button
+                               className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
+                               title="View details (coming soon)"
+                             >
+                               <ChevronRight size={14} className="text-slate-400" />
+                             </button>
+                           </td>
+                         </tr>
+                       ))}
+                     </tbody>
+                   </table>
+
+                   {filteredInvestors.length === 0 && (
+                     <div className="py-20 text-center text-slate-400">
+                       <MessageSquare className="mx-auto mb-4 opacity-20" size={48} />
+                       <p className="font-medium">No investors found.</p>
+                       <p className="text-xs mt-1">Import investors from CSV to get started.</p>
+                     </div>
+                   )}
+                 </div>
+               )}
+             </div>
+           )}
+
+           {/* Partners Tab */}
+           {activeTab === "partners" && (
+             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+               <div className="p-5 border-b border-slate-100 flex flex-wrap justify-between items-center gap-3">
+                 <div>
+                   <h3 className="font-black text-slate-800">Partnerships</h3>
+                   <p className="text-xs text-slate-400">{filteredPartnerships.length} partnerships shown</p>
+                 </div>
+                 <div className="flex gap-2 flex-wrap items-center">
+                   <button
+                     onClick={() => importPartnershipsMutation.mutate()}
+                     disabled={importPartnershipsMutation.isPending}
+                     className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-colors hover:opacity-90"
+                     style={{ backgroundColor: PRIMARY, color: "white" }}
+                   >
+                     <Download size={14} /> Import from CSV
+                   </button>
+                   <div className="flex gap-2 flex-wrap">
+                     {["All", "Not Contacted", "Discovery Call", "Proposal Sent", "Signed", "Pilot", "Active", "Closed"].map((status) => (
+                       <button
+                         key={status}
+                         onClick={() => setFilterPartnershipStatus(status)}
+                         className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                           filterPartnershipStatus === status
+                             ? "text-white shadow-sm"
+                             : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                         }`}
+                         style={filterPartnershipStatus === status ? { backgroundColor: PRIMARY } : {}}
+                       >
+                         {status}
+                       </button>
+                     ))}
+                   </div>
+                 </div>
+               </div>
+               {isLoadingPartnerships ? (
+                 <div className="py-20 text-center text-slate-400">
+                   <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full mx-auto mb-4 animate-spin" />
+                   <p>Loading partnerships...</p>
+                 </div>
+               ) : (
+                 <div className="overflow-x-auto">
+                   <table className="w-full text-left">
+                     <thead>
+                       <tr className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-wider">
+                         <th className="px-6 py-3">Company</th>
+                         <th className="px-6 py-3">Country</th>
+                         <th className="px-6 py-3">Tier</th>
+                         <th className="px-6 py-3">Capability</th>
+                         <th className="px-6 py-3">Status</th>
+                         <th className="px-6 py-3">Actions</th>
+                       </tr>
+                     </thead>
+                     <tbody className="divide-y divide-slate-50">
+                       {filteredPartnerships.map((partnership) => (
+                         <tr key={partnership.id} className="hover:bg-slate-50 transition-colors">
+                           <td className="px-6 py-4">
+                             <p className="font-bold text-slate-800 text-sm">{partnership.company_name || "—"}</p>
+                           </td>
+                           <td className="px-6 py-4">
+                             <p className="text-xs text-slate-600">{partnership.country || "—"}</p>
+                           </td>
+                           <td className="px-6 py-4">
+                             <TierBadge tier={partnership.tier} />
+                           </td>
+                           <td className="px-6 py-4">
+                             <p className="text-xs text-slate-600">{partnership.capability || "—"}</p>
+                           </td>
+                           <td className="px-6 py-4" onClick={e => e.stopPropagation()}>
+                             <PartnershipStatusSelect
+                               value={partnership.status}
+                               onChange={(status) => updatePartnershipMutation.mutate({ id: partnership.id, status })}
+                               isPending={updatePartnershipMutation.isPending}
+                             />
+                           </td>
+                           <td className="px-6 py-4">
+                             <button
+                               className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
+                               title="View details (coming soon)"
+                             >
+                               <ChevronRight size={14} className="text-slate-400" />
+                             </button>
+                           </td>
+                         </tr>
+                       ))}
+                     </tbody>
+                   </table>
+
+                   {filteredPartnerships.length === 0 && (
+                     <div className="py-20 text-center text-slate-400">
+                       <MessageSquare className="mx-auto mb-4 opacity-20" size={48} />
+                       <p className="font-medium">No partnerships found.</p>
+                       <p className="text-xs mt-1">Import partnerships from CSV to get started.</p>
+                     </div>
+                   )}
+                 </div>
+               )}
+             </div>
+           )}
+
+           {/* Metrics Tab */}
+           {activeTab === "metrics" && (
+             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+               <div className="p-5 border-b border-slate-100 flex flex-wrap justify-between items-center gap-3">
+                 <div>
+                   <h3 className="font-black text-slate-800">Weekly Metrics</h3>
+                   <p className="text-xs text-slate-400">{filteredMetrics.length} metric entries shown</p>
+                 </div>
+                 <div className="flex gap-2 flex-wrap items-center">
+                   <button
+                     onClick={() => importMetricsMutation.mutate()}
+                     disabled={importMetricsMutation.isPending}
+                     className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-colors hover:opacity-90"
+                     style={{ backgroundColor: PRIMARY, color: "white" }}
+                   >
+                     <Download size={14} /> Import from CSV
+                   </button>
+                   <div className="relative">
+                     <Search
+                       className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                       size={16}
+                     />
+                     <input
+                       type="text"
+                       placeholder="Search metrics..."
+                       className="pl-9 pr-4 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 text-sm"
+                       style={{ "--tw-ring-color": PRIMARY }}
+                       value={searchMetrics}
+                       onChange={(e) => setSearchMetrics(e.target.value)}
+                     />
+                   </div>
+                 </div>
+               </div>
+               {isLoadingMetrics ? (
+                 <div className="py-20 text-center text-slate-400">
+                   <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full mx-auto mb-4 animate-spin" />
+                   <p>Loading metrics...</p>
+                 </div>
+               ) : (
+                 <div className="overflow-x-auto">
+                   <table className="w-full text-left">
+                     <thead>
+                       <tr className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-wider">
+                         <th className="px-6 py-3">Week</th>
+                         <th className="px-6 py-3">Date</th>
+                         <th className="px-6 py-3">Metric</th>
+                         <th className="px-6 py-3">Target</th>
+                         <th className="px-6 py-3">Actual</th>
+                         <th className="px-6 py-3">Status</th>
+                         <th className="px-6 py-3">Actions</th>
+                       </tr>
+                     </thead>
+                     <tbody className="divide-y divide-slate-50">
+                       {filteredMetrics.map((metric) => (
+                         <tr key={metric.id} className="hover:bg-slate-50 transition-colors">
+                           <td className="px-6 py-4">
+                             <p className="text-xs font-bold text-slate-700">Week {metric.week_number}</p>
+                           </td>
+                           <td className="px-6 py-4">
+                             <p className="text-xs text-slate-600">{metric.metric_date || "—"}</p>
+                           </td>
+                           <td className="px-6 py-4">
+                             <p className="text-xs font-medium text-slate-800">{metric.metric_name}</p>
+                           </td>
+                           <td className="px-6 py-4">
+                             <p className="text-xs text-slate-700">{metric.target_value?.toLocaleString() || "—"}</p>
+                           </td>
+                           <td className="px-6 py-4">
+                             <p className="text-xs font-bold text-slate-700">{metric.actual_value?.toLocaleString() || "—"}</p>
+                           </td>
+                           <td className="px-6 py-4">
+                             <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-black uppercase border ${
+                               metric.status === 'Completed' ? 'bg-green-100 text-green-700 border-green-200' :
+                               metric.status === 'In Progress' ? 'bg-blue-100 text-blue-700 border-blue-200' :
+                               metric.status === 'Not Started' ? 'bg-slate-100 text-slate-700 border-slate-200' :
+                               metric.status === 'Delayed' ? 'bg-red-100 text-red-700 border-red-200' :
+                               'bg-slate-100 text-slate-700 border-slate-200'
+                             }`}>
+                               {metric.status || "—"}
+                             </span>
+                           </td>
+                           <td className="px-6 py-4">
+                             <button
+                               onClick={() => {
+                                 // Inline edit for actual_value and status could be added, but for now just placeholder
+                               }}
+                               className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
+                             >
+                               <ChevronRight size={14} className="text-slate-400" />
+                             </button>
+                           </td>
+                         </tr>
+                       ))}
+                     </tbody>
+                   </table>
+
+                   {filteredMetrics.length === 0 && (
+                     <div className="py-20 text-center text-slate-400">
+                       <MessageSquare className="mx-auto mb-4 opacity-20" size={48} />
+                       <p className="font-medium">No metrics found.</p>
+                       <p className="text-xs mt-1">Import metrics from CSV to get started.</p>
+                     </div>
+                   )}
+                 </div>
+               )}
+             </div>
+           )}
         </div>
       </main>
 

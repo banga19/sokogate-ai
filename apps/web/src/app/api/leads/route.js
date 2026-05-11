@@ -13,12 +13,12 @@ export async function GET() {
 
 export async function POST(request) {
   try {
-    const { name, email, phone, message, score, intent_summary, category, keyword_score, source } =
+    const { name, email, phone, whatsapp, message, score, intent_summary, category, keyword_score, source } =
       await request.json();
 
     const newLead = await sql`
-      INSERT INTO leads (name, email, phone, message, score, intent_summary, category, keyword_score, source)
-      VALUES (${name}, ${email}, ${phone}, ${message}, ${score}, ${intent_summary}, ${category}, ${keyword_score}, ${source || 'manual'})
+      INSERT INTO leads (name, email, phone, whatsapp, message, score, intent_summary, category, keyword_score, source)
+      VALUES (${name}, ${email}, ${phone}, ${whatsapp}, ${message}, ${score}, ${intent_summary}, ${category}, ${keyword_score}, ${source || 'manual'})
       RETURNING *
     `;
 

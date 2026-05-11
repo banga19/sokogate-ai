@@ -1,0 +1,65 @@
+import sql from "@/app/api/utils/sql";
+import { parseCSV, mapInvestorRow } from "@/utils/csvImport";
+import { readFile } from "fs/promises";
+import path from "path";
+
+const CSV_PATH = path.join(process.cwd(), "../../../sales-and-funding-assets");
+
+export async function GET() {
+  return Response.json({ message: "Import endpoint for investors" });
+}
+
+export async function POST() {
+  try {
+    const csvPath = path.join(CSV_PATH, "TRACKER-INVESTORS.csv");
+    const csvContent = await readFile(csvPath, "utf-8");
+
+    const rows = await parseCSV(csvContent);
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const row of rows) {
+      try {
+        const investor = mapInvestorRow(row);
+
+        // Skip if already imported (by fund name)
+        const existing = await sql`
+          SELECT id FROM investors WHERE fund_name = ${investor.fund_name}
+        `;
+
+        if (existing.length > 0) {
+          continue;
+        }
+
+        await sql`
+          INSERT INTO investors (
+            investor_name, fund_name, tier, ticket_size_usd_min, ticket_size_usd_max,
+            geographic_focus, investment_thesis, contact_name, email, phone,
+            decision_timeline_weeks, first_contact_date, status, notes
+          )
+          VALUES (
+            ${investor.investor_name}, ${investor.fund_name}, ${investor.tier},
+            ${investor.ticket_size_usd_min}, ${investor.ticket_size_usd_max},
+            ${investor.geographic_focus}, ${investor.investment_thesis},
+            ${investor.contact_name}, ${investor.email}, ${investor.phone},
+            ${investor.decision_timeline_weeks}, ${investor.first_contact_date},
+            ${investor.status}, ${investor.notes}
+          )
+        `;
+        successCount++;
+      } catch (err) {
+        errorCount++;
+        console.error("Investor import error:", err.message);
+      }
+    }
+
+    return Response.json({
+      success: true,
+      message: `Imported ${successCount} investors (${errorCount} errors/skipped)`,
+      imported: successCount,
+    });
+  } catch (error) {
+    console.error("Import failed:", error);
+    return Response.json({ error: "Failed to import investors" }, { status: 500 });
+  }
+}
