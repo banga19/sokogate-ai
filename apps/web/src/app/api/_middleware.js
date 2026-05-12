@@ -58,7 +58,3 @@ export default function middleware(app) {
     console.log('✅ Global API middleware loaded: security headers + body limits');
   }
 }
-
-  
-  console.log('✅ Global API middleware loaded: security headers + body limits');
-}

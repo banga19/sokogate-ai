@@ -1,8 +1,14 @@
 import sql from "@/app/api/utils/sql";
 import { requireAdmin } from "@/app/api/utils/adminAuth";
 
-export async function GET() {
+export async function GET(request) {
   try {
+    // Admin authentication
+    const auth = await requireAdmin(request);
+    if (!auth.success) {
+      return Response.json({ error: auth.error }, { status: auth.status });
+    }
+
     const prospects = await sql`SELECT * FROM sales_prospects ORDER BY created_at DESC`;
     return Response.json(prospects);
   } catch (error) {

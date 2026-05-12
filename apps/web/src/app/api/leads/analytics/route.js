@@ -1,7 +1,14 @@
 import sql from "@/app/api/utils/sql";
+import { requireAdmin } from "@/app/api/utils/adminAuth";
 
-export async function GET() {
+export async function GET(request) {
   try {
+    // Admin authentication
+    const auth = await requireAdmin(request);
+    if (!auth.success) {
+      return Response.json({ error: auth.error }, { status: auth.status });
+    }
+
     // Leads per day for last 14 days
     const dailyLeads = await sql`
       SELECT 

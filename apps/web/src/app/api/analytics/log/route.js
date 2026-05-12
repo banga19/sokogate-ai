@@ -1,18 +1,5 @@
 import sql from "@/app/api/utils/sql";
-
-/**
- * Analytics Log Endpoint
- * Receives batched analytics events from the client-side analytics engine
- * and stores them in the analytics_events table for later analysis.
- *
- * Expected payload:
- * {
- *   events: [
- *     { type: "message_sent", visitorId: "...", timestamp: 1234567890, role: "user", length: 42 },
- *     ... more events
- *   ]
- * }
- */
+import { requireAdmin } from "@/app/api/utils/adminAuth";
 
 export async function POST(request) {
   try {
@@ -82,6 +69,12 @@ export async function POST(request) {
  */
 export async function GET(request) {
   try {
+    // Admin authentication
+    const auth = await requireAdmin(request);
+    if (!auth.success) {
+      return Response.json({ error: auth.error }, { status: auth.status });
+    }
+
     const { searchParams } = new URL(request.url);
     const eventType = searchParams.get("event_type");
     const visitorId = searchParams.get("visitor_id");

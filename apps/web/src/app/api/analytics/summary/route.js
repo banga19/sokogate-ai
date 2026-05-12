@@ -1,12 +1,14 @@
 import sql from "@/app/api/utils/sql";
-
-/**
- * Analytics Summary Endpoint
- * Provides aggregated metrics for dashboard display
- */
+import { requireAdmin } from "@/app/api/utils/adminAuth";
 
 export async function GET(request) {
   try {
+    // Admin authentication
+    const auth = await requireAdmin(request);
+    if (!auth.success) {
+      return Response.json({ error: auth.error }, { status: auth.status });
+    }
+
     const { searchParams } = new URL(request.url);
     const days = Math.min(parseInt(searchParams.get("days") || "7"), 30);
     const eventType = searchParams.get("event_type");

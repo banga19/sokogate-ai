@@ -5,6 +5,12 @@ import { requireAdmin } from "@/app/api/utils/adminAuth";
 
 export async function GET(request) {
   try {
+    // Admin authentication
+    const auth = await requireAdmin(request);
+    if (!auth.success) {
+      return Response.json({ error: auth.error }, { status: auth.status });
+    }
+
     const { searchParams } = new URL(request.url);
     const limit = Math.min(parseInt(searchParams.get('limit') || '100', 10), 1000); // Max 1000
     const offset = parseInt(searchParams.get('offset') || '0', 10);

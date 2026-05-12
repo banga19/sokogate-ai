@@ -1,4 +1,5 @@
 import sql from "@/app/api/utils/sql";
+import { requireAdmin } from "@/app/api/utils/adminAuth";
 
 export async function POST(request) {
   try {
@@ -67,6 +68,12 @@ export async function POST(request) {
 
 export async function GET(request) {
   try {
+    // Admin authentication
+    const auth = await requireAdmin(request);
+    if (!auth.success) {
+      return Response.json({ error: auth.error }, { status: auth.status });
+    }
+
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status") || "pending";
     const limit = parseInt(searchParams.get("limit") || "50");

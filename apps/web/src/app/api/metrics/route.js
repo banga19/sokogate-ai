@@ -3,6 +3,12 @@ import { requireAdmin } from "@/app/api/utils/adminAuth";
 
 export async function GET(request) {
   try {
+    // Admin authentication
+    const auth = await requireAdmin(request);
+    if (!auth.success) {
+      return Response.json({ error: auth.error }, { status: auth.status });
+    }
+
     // Return all metrics, optionally filtered by week or date range via query params
     const { searchParams } = new URL(request.url);
     const week = searchParams.get("week");
