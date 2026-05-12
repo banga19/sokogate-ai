@@ -18,12 +18,13 @@ echo ""
 echo "📦 Installing dependencies..."
 npm ci
 
-# Step 2: Build the application
+# Step 2: Build the application (production)
 echo ""
-echo "🔨 Building application..."
+echo "🔨 Building application (production)..."
+export NODE_ENV=production
 npm run build
 
-# Step 3: Create deployment zip
+# Step 3: Create deployment package
 echo ""
 echo "📁 Creating deployment package..."
 
@@ -33,35 +34,47 @@ if [ ! -d "build" ]; then
     exit 1
 fi
 
-# Create a zip of the build folder contents
-cd build
-zip -r ../sokogate-deploy.zip . -x "*.map" -x "*.ts" -x "*.tsx" -x "*.js.map"
+# Create a temporary directory for packaging
+mkdir -p deploy-pkg
+cp -r build deploy-pkg/
+cp package.json package-lock.json deploy-pkg/ 2>/dev/null || true
+
+# Create zip (exclude node_modules, sourcemaps, types)
+cd deploy-pkg
+zip -r ../sokogate-deploy.zip . -x "*/node_modules/*" "*.map" "*.ts" "*.tsx"
 cd ..
+
+# Cleanup temp dir
+rm -rf deploy-pkg
 
 echo "✅ Created: sokogate-deploy.zip"
 echo ""
-echo "📋 Deployment Instructions:"
-echo "1. Go to cPanel → Setup Node.js App"
-echo "2. Create new app (or select existing):"
-echo "   - Application root: public_html  (or your subfolder)"
+echo "📋 cPanel Deployment Steps:"
+echo "1. cPanel → Setup Node.js App"
+echo "   - Application root: public_html  (or your chosen folder)"
 echo "   - Startup file: build/server/index.js"
 echo "   - Node version: 20"
 echo "   - Mode: production"
 echo ""
-echo "3. Upload sokogate-deploy.zip to your app directory"
-echo "   (e.g., ~/nodejsapp/ or ~/public_html/)"
-echo "   Extract it so build/server/index.js exists at the root"
+echo "2. Upload sokogate-deploy.zip to your app directory"
+echo "   Extract it. Final structure should have:"
+echo "   ~/nodejsapp/build/server/index.js"
+echo "   ~/nodejsapp/build/src/app/api/... (route files inside build/src)"
 echo ""
-echo "4. Set environment variables in cPanel:"
-echo "   DATABASE_URL=postgres://..."
+echo "3. Set environment variables in cPanel:"
+echo "   DATABASE_URL=<your-postgres-url>"
 echo "   AUTH_SECRET=$(openssl rand -base64 32)"
-echo "   NODE_ENV=production"
+echo "   AUTH_URL=https://sokogate-ai.ultimotradingltd.co.ke"
+echo "   ANTHROPIC_API_KEY=<your-key>"
+echo "   NODE_OPTIONS=--max-old-space-size=512"
 echo ""
-echo "5. Run 'npm ci --only=production' in cPanel Terminal"
+echo "4. In cPanel Terminal, run:"
+echo "   cd ~/nodejsapp"
+echo "   npm ci --only=production"
 echo ""
-echo "6. Click 'Restart App' in cPanel"
+echo "5. Click 'Restart App' in cPanel Node.js interface"
 echo ""
-echo "🌐 Your app will be live at: https://sokogate-ai.ultimotradingltd.co.ke"
+echo "🌐 App: https://sokogate-ai.ultimotradingltd.co.ke"
 echo ""
-echo "📝 Optional: Run migrations manually before first start:"
-echo "   node -e \"import('./src/app/api/utils/schema.js').then(m => m.ensureSchema())\""
+echo "📝 If OOM persists, try NODE_OPTIONS=--max-old-space-size=256"
+echo "   or request LVE quota increase from your host."

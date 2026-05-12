@@ -6,6 +6,7 @@
 		"dev": "react-router dev",
 		"typecheck": "react-router typegen && tsc --noEmit",
 		"build": "react-router build",
+		"postbuild": "node scripts/postbuild.js",
 		"start": "node build/server/index.js",
 		"build:prod": "NODE_ENV=production react-router build"
 	},

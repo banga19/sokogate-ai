@@ -8,13 +8,51 @@ import updatedFetch from '../src/__create/fetch';
 const API_BASENAME = '/api';
 const api = new Hono();
 
-// Get current directory
+// Get current directory (used for path resolution)
 const __dirname = join(fileURLToPath(new URL('.', import.meta.url)), '../src/app/api');
-if (globalThis.fetch) {
-	globalThis.fetch = updatedFetch;
+
+// In production, pre-bundle routes using Vite's global import if available
+const isProduction = !import.meta.env?.DEV && !import.meta.env?.development;
+
+async function getRouteFiles(): Promise<string[]> {
+	if (isProduction && typeof import.meta.glob === 'function') {
+		// Build-time: Vite provides virtual modules for all matching files
+		const routes: string[] = [];
+		const routeModules = import.meta.glob('../src/app/api/**/route.js', { eager: false });
+		for (const [filePath] of Object.entries(routeModules)) {
+			// Convert virtual path to virtual module ID
+			routes.push(filePath);
+		}
+		return routes.sort((a, b) => b.length - a.length);
+	}
+
+	// Development: scan filesystem
+	const files = await readdir(__dirname);
+	let routes: string[] = [];
+
+	for (const file of files) {
+		try {
+			const filePath = join(__dirname, file);
+			const statResult = await stat(filePath);
+
+			if (statResult.isDirectory()) {
+				routes = routes.concat(await findRouteFiles(filePath));
+			} else if (file === 'route.js') {
+				if (filePath === join(__dirname, 'route.js')) {
+					routes.unshift(filePath);
+				} else {
+					routes.push(filePath);
+				}
+			}
+		} catch (error) {
+			console.error(`Error reading file ${file}:`, error);
+		}
+	}
+
+	return routes;
 }
 
-// Recursively find all route.js files
+// Recursively find all route.js files (dev-only fallback)
 async function findRouteFiles(dir: string): Promise<string[]> {
 	const files = await readdir(dir);
 	let routes: string[] = [];
@@ -27,9 +65,8 @@ async function findRouteFiles(dir: string): Promise<string[]> {
 			if (statResult.isDirectory()) {
 				routes = routes.concat(await findRouteFiles(filePath));
 			} else if (file === 'route.js') {
-				// Handle root route.js specially
 				if (filePath === join(__dirname, 'route.js')) {
-					routes.unshift(filePath); // Add to beginning of array
+					routes.unshift(filePath);
 				} else {
 					routes.push(filePath);
 				}
@@ -65,22 +102,15 @@ function getHonoPath(routeFile: string): { name: string; pattern: string }[] {
 
 // Import and register all routes
 async function registerRoutes() {
-	const routeFiles = (
-		await findRouteFiles(__dirname).catch((error) => {
-			console.error('Error finding route files:', error);
-			return [];
-		})
-	)
-		.slice()
-		.sort((a, b) => {
-			return b.length - a.length;
-		});
+	const routeFiles = await getRouteFiles();
 
 	// Clear existing routes
 	api.routes = [];
 
 	for (const routeFile of routeFiles) {
 		try {
+			// In production, routeFile may be a virtual module path from import.meta.glob
+			// In dev, it's a filesystem path
 			const route = await import(/* @vite-ignore */ `${routeFile}?update=${Date.now()}`);
 
 			const methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
