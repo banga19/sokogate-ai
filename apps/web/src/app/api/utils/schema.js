@@ -94,6 +94,23 @@ CREATE TABLE IF NOT EXISTS products (
 );
 
 -- ============================================
+-- 5.1 SCHEMA UPGRADE: ADD MISSING COLUMNS TO LEADS (if needed)
+-- ============================================
+-- These ALTER statements ensure that if the leads table already exists from a previous
+-- version, it will be brought up to date with all required columns before indexes are created.
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS visitor_id VARCHAR(100);
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS category VARCHAR(100);
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS payment_status VARCHAR(20) DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'failed', 'refunded'));
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS shipping_status VARCHAR(20) DEFAULT 'pending' CHECK (shipping_status IN ('pending', 'in_transit', 'delivered', 'cancelled'));
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS shipping_tracking_number VARCHAR(100);
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS keyword_score VARCHAR(10) CHECK (keyword_score IN ('High', 'Medium', 'Low'));
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'chat';
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS conversation_stage VARCHAR(50) DEFAULT 'greeting' CHECK (conversation_stage IN ('greeting', 'needs_assessment', 'contact_capture', 'qualified', 'handoff_requested'));
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS handoff_requested BOOLEAN DEFAULT FALSE;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS company VARCHAR(200);
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS intent_summary TEXT;
+
+-- ============================================
 -- 5. INDEXES FOR PERFORMANCE
 -- ============================================
 CREATE INDEX IF NOT EXISTS idx_leads_created_at ON leads(created_at DESC);
@@ -152,6 +169,33 @@ CREATE TABLE IF NOT EXISTS ai_interactions (
 CREATE INDEX IF NOT EXISTS idx_ai_interactions_visitor ON ai_interactions(visitor_id);
 CREATE INDEX IF NOT EXISTS idx_ai_interactions_lead ON ai_interactions(lead_id);
 CREATE INDEX IF NOT EXISTS idx_ai_interactions_created ON ai_interactions(created_at DESC);
+
+-- ============================================
+-- 8.5 ANALYTICS EVENTS TABLE
+-- ============================================
+CREATE TABLE IF NOT EXISTS analytics_events (
+  id SERIAL PRIMARY KEY,
+  event_type VARCHAR(50) NOT NULL,
+  visitor_id VARCHAR(100) NOT NULL,
+  event_data JSONB NOT NULL DEFAULT '{}',
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Add missing columns if an old version of the table existed
+ALTER TABLE analytics_events ADD COLUMN IF NOT EXISTS event_type VARCHAR(50);
+ALTER TABLE analytics_events ADD COLUMN IF NOT EXISTS visitor_id VARCHAR(100);
+ALTER TABLE analytics_events ADD COLUMN IF NOT EXISTS event_data JSONB DEFAULT '{}';
+ALTER TABLE analytics_events ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}';
+ALTER TABLE analytics_events ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+
+-- Indexes for analytics queries
+CREATE INDEX IF NOT EXISTS idx_analytics_events_visitor_id ON analytics_events(visitor_id);
+CREATE INDEX IF NOT EXISTS idx_analytics_events_type ON analytics_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_analytics_events_created_at ON analytics_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_analytics_events_composite ON analytics_events(visitor_id, event_type, created_at DESC);
+-- Partial index for frequent lead_captured queries
+CREATE INDEX IF NOT EXISTS idx_analytics_lead_captured ON analytics_events(visitor_id, created_at DESC) WHERE event_type = 'lead_captured';
 
 -- ============================================
 -- 8. HANDOFF REQUESTS TABLE

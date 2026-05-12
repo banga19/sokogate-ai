@@ -16,21 +16,44 @@ const CATEGORIES = [
 // ============================================
 
 function detectCategory(text) {
-  const lower = text.toLowerCase();
+  if (!text) return "Other";
+  
+  // Tokenize: split into words, lowercase, remove non-alphanumeric
+  const rawTokens = text.toLowerCase().split(/\W+/).filter(Boolean);
+  const tokenSet = new Set(rawTokens);
+  
+  // Add singular forms (strip trailing 's') to handle plurals
+  rawTokens.forEach(t => {
+    if (t.endsWith('s') && t.length > 1) {
+      tokenSet.add(t.slice(0, -1));
+    }
+  });
+
   const map = {
-    "Apparel & Fabrics": ["clothing","apparel","fabric","textile","garment","fashion","shirt","dress","jeans","uniform"],
-    Electronics: ["electronics","electronic","gadget","phone","computer","laptop","tv","camera","component","circuit"],
-    "Agriculture & Food": ["agriculture","food","farm","crop","grain","fruit","vegetable","meat","dairy","seafood"],
-    "Auto Parts": ["auto","car","vehicle","part","tire","engine","brake","wheel","automotive"],
-    "Health & Beauty": ["health","beauty","cosmetic","skincare","medicine","pharmaceutical","supplement"],
-    "Machinery & Parts": ["machinery","machine","equipment","tool","industrial","engine","motor"],
-    "Home & Construction": ["home","construction","furniture","building","material","decoration","interior"],
-    "Sports & Toys": ["sports","toy","game","equipment","fitness","outdoor","play","recreation"]
+    "Apparel & Fabrics": ["clothing","apparel","fabric","textile","garment","fashion","shirt","dress","jeans","uniform", "clothes", "garments"],
+    "Electronics": ["electronics","electronic","gadget","phone","computer","laptop","tv","camera","component","circuit", "pc", "laptop"],
+    "Agriculture & Food": ["agriculture","food","farm","crop","grain","fruit","vegetable","meat","dairy","seafood", "produce", "agri"],
+    "Auto Parts": ["auto","car","vehicle","part","tire","engine","brake","wheel","automotive", "automobile", "motorcycle"],
+    "Health & Beauty": ["health","beauty","cosmetic","skincare","medicine","pharmaceutical","supplement", "cosmetics", "skin", "care", "pharma"],
+    "Machinery & Parts": ["machinery","machine","equipment","tool","industrial","engine","motor", "machines", "tools", "heavy"],
+    "Home & Construction": ["home","construction","furniture","building","material","decoration","interior", "furnishings", "fixtures"],
+    "Sports & Toys": ["sports","toy","game","equipment","fitness","outdoor","play","recreation", "sport", "toys", "games"]
   };
-  for (const [cat, keys] of Object.entries(map)) {
-    if (keys.some(k => lower.includes(k))) return cat;
+
+  // Score categories by number of matched keywords
+  let bestCategory = "Other";
+  let bestScore = 0;
+
+  for (const [cat, keywords] of Object.entries(map)) {
+    const score = keywords.reduce((sum, kw) => sum + (tokenSet.has(kw) ? 1 : 0), 0);
+    if (score > bestScore) {
+      bestScore = score;
+      bestCategory = cat;
+    }
   }
-  return "Other";
+
+   // Only return a specific category if score is at least 1 (default to "Other" if no matches)
+   return bestScore > 0 ? bestCategory : "Other";
 }
 
 function extractLeadData(aiContent) {
@@ -282,8 +305,27 @@ async function createHandoffRecord(leadId, visitorId, reason, urgency) {
 }
 
 // ============================================
-// MAIN POST
+// CACHING LAYER
 // ============================================
+
+let knowledgeBaseCache = null;
+let knowledgeBaseCacheTime = 0;
+const KNOWLEDGE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+async function getCachedKnowledgeBase() {
+  if (knowledgeBaseCache && (Date.now() - knowledgeBaseCacheTime < KNOWLEDGE_CACHE_TTL_MS)) {
+    return knowledgeBaseCache;
+  }
+  try {
+    const result = await sql`SELECT question, answer, category, priority FROM knowledge_base WHERE is_active = TRUE ORDER BY priority DESC LIMIT 15`;
+    knowledgeBaseCache = result;
+    knowledgeBaseCacheTime = Date.now();
+    return result;
+  } catch (e) {
+    console.warn("Knowledge base fetch failed:", e);
+    return [];
+  }
+}
 
 export async function POST(request) {
   try {
@@ -318,12 +360,9 @@ export async function POST(request) {
       ai_goal: "Capture leads by answering sourcing questions and collecting contact info."
     };
 
-    // Knowledge base
-    let knowledgeResult = [];
-    try {
-      knowledgeResult = await sql`SELECT question, answer, category, priority FROM knowledge_base WHERE is_active = TRUE ORDER BY priority DESC LIMIT 15`;
-    } catch (e) {}
-    const knowledgeContext = knowledgeResult.length ? `\n\nCURRENT KNOWLEDGE BASE:\n${knowledgeResult.map(k => `Q: ${k.question}\nA: ${k.answer}`).join('\n---\n')}\n` : '';
+     // Knowledge base (cached)
+     let knowledgeResult = await getCachedKnowledgeBase();
+     const knowledgeContext = knowledgeResult.length ? `\n\nCURRENT KNOWLEDGE BASE:\n${knowledgeResult.map(k => `Q: ${k.question}\nA: ${k.answer}`).join('\n---\n')}\n` : '';
 
     // FAQ short-circuit
     const faqKind = detectFAQKind(latestUserText);
@@ -350,20 +389,91 @@ Thank you!`,
        });
      }
 
-     // System prompt
-     const detectedCategory = detectCategory(latestUserText);
-     const categoryGuidance = {
-       "Apparel & Fabrics": "For apparel buyers: ask about garment type, sizes, fabric preferences, MOQ. For apparel suppliers: ask about manufacturing capacity, export experience.",
-       "Electronics": "Ask about specific product types (phones, laptops, components), quantity, required specs, destination country, and usage scenario.",
-       "Agriculture & Food": "Ask about product type, quantity, grade/quality standards, packaging, destination, and timeline. Find out if they need certifications.",
-       "Auto Parts": "Ask about vehicle type, part numbers, compatibility, quantity, and destination. Determine if they're a repair shop, distributor, or manufacturer.",
-       "Health & Beauty": "Ask about product type (cosmetics, supplements, pharmaceuticals), regulatory requirements (FDA, KEBS), quantity, and destination.",
-       "Machinery & Parts": "Ask about equipment type, capacity, power requirements, intended use, quantity, and shipping constraints.",
-       "Home & Construction": "Ask about material type (furniture, building materials, fixtures), quantity, dimensions, and destination city/country.",
-       "Sports & Toys": "Ask about product category (outdoor, indoor, age groups), safety certifications, quantity, and target market."
-     }[detectedCategory] || "Ask targeted questions to understand: exact product needs, quantity/MOQ, destination, timeline, and budget. Get specifics to match with suppliers.";
+      // System prompt
+      const detectedCategory = detectCategory(latestUserText);
+      
+      // Define category-specific follow-up questions for dynamic branching
+      const categoryFollowUpQuestions = {
+        "Apparel & Fabrics": {
+          buyer: ["What type of apparel are you looking for?", "What sizes and quantities do you need?", "Do you have any fabric preferences?", "What's your target price range?"],
+          supplier: ["What types of garments do you manufacture?", "What's your production capacity and MOQ?", "Do you have export experience?", "Which regions do you ship to?"]
+        },
+        "Electronics": {
+          buyer: ["What specific electronics do you need (phones, laptops, components)?", "What quantity are you looking for?", "What are the required specifications?", "Which destination country/city?"],
+          supplier: ["What electronic products do you supply?", "What's your MOQ and wholesale pricing?", "Which regions can you ship to?", "Do you have any certifications?"]
+        },
+        "Agriculture & Food": {
+          buyer: ["What specific agriculture or food products do you need?", "What quantity and MOQ are required?", "What quality specifications (grade, packaging) do you need?", "What's your destination and timeline?"],
+          supplier: ["What agriculture/food products do you supply?", "What's your MOQ and pricing?", "What quality certifications do you have?", "Which regions do you serve?"]
+        },
+        "Auto Parts": {
+          buyer: ["What type of vehicle and specific parts do you need?", "What quantity are you looking for?", "Do you need OEM or aftermarket parts?", "What's your destination?"],
+          supplier: ["What auto parts do you manufacture/supply?", "What's your MOQ and pricing?", "Which vehicle models are compatible?", "Which regions do you ship to?"]
+        },
+        "Health & Beauty": {
+          buyer: ["What type of health/beauty products do you need (cosmetics, supplements)?", "What quantity are you looking for?", "What regulatory requirements do you need (FDA, KEBS)?", "What's your destination?"],
+          supplier: ["What health/beauty products do you manufacture?", "What's your MOQ and wholesale pricing?", "Which regulatory certifications do you have?", "Which regions do you serve?"]
+        },
+        "Machinery & Parts": {
+          buyer: ["What type of machinery or equipment do you need?", "What quantity are you looking for?", "What are the power requirements and intended use?", "Are there any shipping constraints?"],
+          supplier: ["What machinery/equipment do you supply?", "What's your MOQ and pricing?", "What are the power specifications?", "Which regions do you ship to?"]
+        },
+        "Home & Construction": {
+          buyer: ["What type of home/construction materials do you need?", "What quantity are you looking for?", "What are the dimensions and specifications?", "What's your destination city/country?"],
+          supplier: ["What home/construction materials do you supply?", "What's your MOQ and pricing?", "What are the standard dimensions?", "Which regions do you serve?"]
+        },
+        "Sports & Toys": {
+          buyer: ["What type of sports or toys products do you need?", "What quantity are you looking for?", "Are there any safety certifications required?", "What's your target market?"],
+          supplier: ["What sports/toys products do you supply?", "What's your MOQ and pricing?", "What safety certifications do you have?", "Which regions do you serve?"]
+        }
+      };
+      
+      // Determine if user is likely a buyer or supplier based on keywords
+      const userIsSupplier = latestUserText?.toLowerCase().includes('supplier') || 
+                           latestUserText?.toLowerCase().includes('manufacturer') ||
+                           latestUserText?.toLowerCase().includes('wholesaler') ||
+                           latestUserText?.toLowerCase().includes('distributor');
+                           
+      const categoryGuidance = {
+        "Apparel & Fabrics": userIsSupplier ? 
+          "For apparel suppliers: ask about manufacturing capacity, export experience, MOQ, and shipping regions." :
+          "For apparel buyers: ask about garment type, sizes, fabric preferences, MOQ, and target price.",
+        "Electronics": userIsSupplier ? 
+          "For electronics suppliers: ask about product types, MOQ, wholesale pricing, shipping regions, and certifications." :
+          "For electronics buyers: ask about specific items (phones, laptops), quantity, specs, destination, and budget.",
+        "Agriculture & Food": userIsSupplier ? 
+          "For agriculture/food suppliers: ask about product types, MOQ, pricing, quality certifications, and regions served." :
+          "For agriculture/food buyers: ask about product names, quantity, quality specs, destination, and timeline.",
+        "Auto Parts": userIsSupplier ? 
+          "For auto parts suppliers: ask about part types, MOQ, pricing, vehicle compatibility, and shipping regions." :
+          "For auto parts buyers: ask about vehicle type, specific parts needed, quantity, OEM/aftermarket preference, and destination.",
+        "Health & Beauty": userIsSupplier ? 
+          "For health/beauty suppliers: ask about product types, MOQ, wholesale pricing, regulatory certifications, and regions served." :
+          "For health/beauty buyers: ask about product types (cosmetics, supplements), quantity, regulatory needs, and destination.",
+        "Machinery & Parts": userIsSupplier ? 
+          "For machinery suppliers: ask about equipment types, MOQ, pricing, power specs, and shipping regions." :
+          "For machinery buyers: ask about equipment type, quantity, power requirements, intended use, and shipping constraints.",
+        "Home & Construction": userIsSupplier ? 
+          "For home/construction suppliers: ask about material types, MOQ, pricing, dimensions, and regions served." :
+          "For home/construction buyers: ask about material type, quantity, dimensions, specifications, and destination.",
+        "Sports & Toys": userIsSupplier ? 
+          "For sports/toys suppliers: ask about product types, MOQ, pricing, safety certifications, and regions served." :
+          "For sports/toys buyers: ask about product type, quantity, safety certifications needed, and target market."
+      }[detectedCategory] || "Ask targeted questions to understand: exact product needs, quantity/MOQ, destination, timeline, and budget. Get specifics to match with suppliers.";
+      
+       // Add follow-up questions to system prompt if we have enough context
+       let followUpGuidance = "";
+       if (detectedCategory !== "Other" && (capturedName || latestUserText?.length > 20)) {
+         const categoryKey = detectedCategory;
+         if (categoryFollowUpQuestions[categoryKey]) {
+           const questionSet = userIsSupplier ? 
+             categoryFollowUpQuestions[categoryKey].supplier : 
+             categoryFollowUpQuestions[categoryKey].buyer;
+           followUpGuidance = `\n\nDYNAMIC FOLLOW-UP QUESTIONS:\nBased on the detected category (${detectedCategory}) and whether the user is a ${userIsSupplier ? 'supplier' : 'buyer'}, consider asking:\n${questionSet.map((q, i) => `${i+1}) ${q}`).join('\n')}`;
+         }
+       }
 
-     const systemPrompt = `You are the Sokogate AI Sales Agent — Africa's #1 B2B Sourcing AI.
+      const systemPrompt = `You are the Sokogate AI Sales Agent — Africa's #1 B2B Sourcing AI.
 
 Business: ${settings.business_name} | ${settings.business_description}
 Mission: ${settings.ai_goal}
@@ -389,14 +499,15 @@ INSTRUCTIONS:
 2. Understand what they want to buy/sell (product, quantity, destination)
 3. Capture WhatsApp number (PRIORITY) and email
 4. Determine intent score:
-   - High: Urgent, bulk orders (1000+ units), ready to buy now
-   - Medium: Interested, requesting quotes/samples, specific needs
-   - Low: Browsing, vague interest, no timeline
+    - High: Urgent, bulk orders (1000+ units), ready to buy now
+    - Medium: Interested, requesting quotes/samples, specific needs
+    - Low: Browsing, vague interest, no timeline
 5. If user asks for "human" or "real person", respond with handoff message
 6. When you have: name + contact (phone/WhatsApp/email) + product details → append LEAD_DATA
 
 CATEGORY-SPECIFIC GUIDANCE:
 ${categoryGuidance}
+${followUpGuidance}
 
 WHATSAPP DEEP LINK EXAMPLE:
 ${generateWhatsAppLink("+254758947124", "Hello, I need assistance")}
@@ -524,21 +635,23 @@ DO NOT mention LEAD_DATA or HANDOFF tokens to user. Ask only for missing info, n
 
          serverEvents.emitLead(newLead);
 
-         const clean = aiContent.replace(/\|LEAD_DATA:.*?\|/s, "").trim();
-         const scoreMsg = buildScoreMessage(leadData.score, category, isHighValue);
+          const clean = aiContent.replace(/\|LEAD_DATA:.*?\|/s, "").trim();
+          const scoreMsg = buildScoreMessage(leadData.score, category, isHighValue);
 
-          return Response.json({
-            content: clean + "\n\n" + scoreMsg,
-            leadCaptured: true,
-            leadName: leadData.name,
-            email: leadData.email || null,
-            whatsapp: leadData.whatsapp,
-            score: leadData.score,
-            category,
-            isHighValue,
-            stage: 'qualified',
-            progress: buildProgressIndicator('qualified')
-          });
+            return Response.json({
+              content: clean + "\n\n" + scoreMsg,
+              leadCaptured: true,
+              leadName: leadData.name,
+              company: leadData.company || null,
+              email: leadData.email || null,
+              whatsapp: leadData.whatsapp,
+              score: leadData.score,
+              category,
+              isHighValue,
+              leadId: newLead.id,
+              stage: 'qualified',
+              progress: buildProgressIndicator('qualified')
+            });
        } catch (e) {
          console.error("Lead save failed:", e);
        }

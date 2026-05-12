@@ -20,6 +20,9 @@ import { useUser } from "@/contexts/AuthContext";
 import useAuth from "@/utils/useAuth";
 import { Link } from "react-router";
 import { useTranslation } from "@/contexts/TranslationContext";
+import { getUserIdentity, saveUserIdentity, extractIdentityFromText } from "@/utils/personalization";
+import { hasDataConsent, setDataConsent, getPrivacyNotice } from "@/utils/leadCapture";
+import { analytics, initSessionAnalytics } from "@/utils/analytics";
 
 const QUICK_REPLIES = [
   "I want to source electronics in bulk",
@@ -33,7 +36,13 @@ const QUICK_REPLIES = [
 const TRIGGER_CONFIG = {
   timeOnPageMs: 30000, // 30 seconds
   scrollDepthPercent: 50, // 50% scroll depth
+  dwellTimeMs: 15000, // 15 seconds of inactivity (cursor still)
 };
+
+// Dwell time tracking
+let dwellTimeCheckInterval = null;
+let lastMouseMoveTime = Date.now();
+let isCurrentlyDwelling = false;
 
 // Session-based trigger tracking to avoid spamming users
 function hasTriggerBeenShown(triggerType) {
@@ -46,6 +55,17 @@ function markTriggerShown(triggerType) {
   if (typeof window === 'undefined') return;
   const key = `sokogate_trigger_shown_${triggerType}`;
   sessionStorage.setItem(key, 'true');
+}
+
+// Check if triggers are globally disabled (user dismissed)
+function areTriggersGloballyDisabled() {
+  if (typeof window === 'undefined') return true;
+  return sessionStorage.getItem('sokogate_triggers_disabled') === 'true';
+}
+
+function disableTriggersForSession() {
+  if (typeof window === 'undefined') return;
+  sessionStorage.setItem('sokogate_triggers_disabled', 'true');
 }
 
 // Progress indicator component
@@ -186,26 +206,37 @@ export default function ChatWidget({ settings = {} }) {
     return "vis_ssr";
   };
 
-  const [visitorId] = useState(getVisitorId());
+   const [visitorId] = useState(getVisitorId());
+
+   // Initialize analytics session
+   useEffect(() => {
+     if (visitorId && visitorId !== 'vis_ssr') {
+       initSessionAnalytics(visitorId);
+     }
+   }, [visitorId]);
   const [messages, setMessages] = useState([]);
   const messagesRef = useRef([]);
   const [input, setInput] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-   const [leadCaptured, setLeadCaptured] = useState(false);
-   const [capturedWhatsapp, setCapturedWhatsapp] = useState(null);
-   const [capturedName, setCapturedName] = useState(null);
-   const [capturedEmail, setCapturedEmail] = useState(null);
-   const [emailValid, setEmailValid] = useState(true);
-   const [emailSuggestions, setEmailSuggestions] = useState([]);
-   const [leadScore, setLeadScore] = useState(null);
-   const [leadCategory, setLeadCategory] = useState(null);
-   const [isHighValue, setIsHighValue] = useState(false);
-   const [conversationStage, setConversationStage] = useState("greeting");
-   const [progress, setProgress] = useState(null);
-  const [showNotification, setShowNotification] = useState(true);
-  const [showHumanHelp, setShowHumanHelp] = useState(false);
-  const [showFeedback, setShowFeedback] = useState(false);
-  const [feedbackGiven, setFeedbackGiven] = useState(false);
+   const [isLoading, setIsLoading] = useState(false);
+    const [leadCaptured, setLeadCaptured] = useState(false);
+    const [capturedWhatsapp, setCapturedWhatsapp] = useState(null);
+    const [capturedName, setCapturedName] = useState(null);
+    const [capturedCompany, setCapturedCompany] = useState(null);
+    const [capturedEmail, setCapturedEmail] = useState(null);
+    const [emailValid, setEmailValid] = useState(true);
+    const [emailSuggestions, setEmailSuggestions] = useState([]);
+    const [leadScore, setLeadScore] = useState(null);
+    const [leadCategory, setLeadCategory] = useState(null);
+    const [isHighValue, setIsHighValue] = useState(false);
+    const [conversationStage, setConversationStage] = useState("greeting");
+    const [progress, setProgress] = useState(null);
+    const [showNotification, setShowNotification] = useState(true);
+    const [showHumanHelp, setShowHumanHelp] = useState(false);
+    const [showFeedback, setShowFeedback] = useState(false);
+    const [feedbackGiven, setFeedbackGiven] = useState(false);
+    const [hasConsent, setHasConsent] = useState(() => hasDataConsent());
+    const [showConsentPrompt, setShowConsentPrompt] = useState(false);
+    const [pendingLeadData, setPendingLeadData] = useState(null);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -334,54 +365,100 @@ export default function ChatWidget({ settings = {} }) {
   }, [businessName, visitorId]);
 
    // Initialize with personalized greeting
+    useEffect(() => {
+      const initializeChat = async () => {
+        // Try to get user identity from storage/cookies
+        const userIdentity = getUserIdentity();
+        if (userIdentity.name) {
+          setCapturedName(userIdentity.name);
+        }
+        if (userIdentity.company) {
+          // Update visitor with company info if not already set
+          if (!capturedCompany) setCapturedCompany(userIdentity.company);
+        }
+
+        console.log('[DEBUG] businessName:', businessName, 'type:', typeof businessName);
+        console.log('[DEBUG] capturedName:', capturedName);
+        const greeting = capturedName
+          ? t('chat.greetingReturning', { businessName, name: capturedName })
+          : t('chat.greetingNew', { businessName });
+        console.log('[DEBUG] greeting:', greeting);
+        setMessages([{ role: "assistant", content: greeting }]);
+      };
+
+      initializeChat();
+    }, [businessName, capturedName, visitorId, t]);
+
+   // Proactive triggers
    useEffect(() => {
-     const initializeChat = async () => {
-       console.log('[DEBUG] businessName:', businessName, 'type:', typeof businessName);
-       console.log('[DEBUG] capturedName:', capturedName);
-       const greeting = capturedName
-         ? t('chat.greetingReturning', { businessName, name: capturedName })
-         : t('chat.greetingNew', { businessName });
-       console.log('[DEBUG] greeting:', greeting);
-       setMessages([{ role: "assistant", content: greeting }]);
+     if (isOpen || hasTriggerBeenShown('time') || areTriggersGloballyDisabled()) return;
+     const timer = setTimeout(() => {
+       // Show notification instead of opening chat directly
+       setShowNotification(true);
+       markTriggerShown('time');
+     }, TRIGGER_CONFIG.timeOnPageMs);
+     return () => clearTimeout(timer);
+   }, [isOpen]);
+
+   // Dwell time detection (inactivity)
+   useEffect(() => {
+     if (isOpen || hasTriggerBeenShown('dwell') || typeof window === 'undefined' || areTriggersGloballyDisabled()) return;
+
+     const resetDwellTimer = () => {
+       lastMouseMoveTime = Date.now();
+       isCurrentlyDwelling = false;
+       if (dwellTimeCheckInterval) clearInterval(dwellTimeCheckInterval);
+       dwellTimeCheckInterval = setInterval(() => {
+         const inactiveMs = Date.now() - lastMouseMoveTime;
+         if (inactiveMs >= TRIGGER_CONFIG.dwellTimeMs && !isCurrentlyDwelling) {
+           isCurrentlyDwelling = true;
+           setShowNotification(true);
+           markTriggerShown('dwell');
+           if (dwellTimeCheckInterval) clearInterval(dwellTimeCheckInterval);
+         }
+       }, 1000);
      };
 
-     initializeChat();
-   }, [businessName, capturedName, visitorId, t]);
+     window.addEventListener('mousemove', resetDwellTimer);
+     window.addEventListener('keydown', resetDwellTimer);
+     window.addEventListener('scroll', resetDwellTimer);
+     // Start timer
+     resetDwellTimer();
 
-  // Proactive triggers
-  useEffect(() => {
-    if (isOpen || hasTriggerBeenShown('time')) return;
-    const timer = setTimeout(() => {
-      setShowNotification(true);
-      markTriggerShown('time');
-    }, TRIGGER_CONFIG.timeOnPageMs);
-    return () => clearTimeout(timer);
-  }, [isOpen]);
+     return () => {
+       window.removeEventListener('mousemove', resetDwellTimer);
+       window.removeEventListener('keydown', resetDwellTimer);
+       window.removeEventListener('scroll', resetDwellTimer);
+       if (dwellTimeCheckInterval) clearInterval(dwellTimeCheckInterval);
+     };
+   }, [isOpen]);
 
-  useEffect(() => {
-    if (isOpen || hasTriggerBeenShown('exit') || typeof window === 'undefined') return;
-    const handleMouseLeave = (e) => {
-      if (e.clientY <= 0) {
-        setShowNotification(true);
-        markTriggerShown('exit');
-      }
-    };
-    window.addEventListener('mouseleave', handleMouseLeave);
-    return () => window.removeEventListener('mouseleave', handleMouseLeave);
-  }, [isOpen]);
+   useEffect(() => {
+      if (isOpen || hasTriggerBeenShown('exit') || typeof window === 'undefined' || areTriggersGloballyDisabled()) return;
+      const handleMouseLeave = (e) => {
+        if (e.clientY <= 0) {
+          // Show notification instead of opening directly
+          setShowNotification(true);
+          markTriggerShown('exit');
+        }
+      };
+      window.addEventListener('mouseleave', handleMouseLeave);
+      return () => window.removeEventListener('mouseleave', handleMouseLeave);
+    }, [isOpen]);
 
-  useEffect(() => {
-    if (isOpen || hasTriggerBeenShown('scroll') || typeof window === 'undefined') return;
-    const handleScroll = () => {
-      const scrollPercent = (window.scrollY / (document.body.scrollHeight - window.innerHeight)) * 100;
-      if (scrollPercent >= TRIGGER_CONFIG.scrollDepthPercent) {
-        setShowNotification(true);
-        markTriggerShown('scroll');
-      }
-    };
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, [isOpen]);
+    useEffect(() => {
+      if (isOpen || hasTriggerBeenShown('scroll') || typeof window === 'undefined' || areTriggersGloballyDisabled()) return;
+      const handleScroll = () => {
+        const scrollPercent = (window.scrollY / (document.body.scrollHeight - window.innerHeight)) * 100;
+        if (scrollPercent >= TRIGGER_CONFIG.scrollDepthPercent) {
+          // Show notification instead of opening directly
+          setShowNotification(true);
+          markTriggerShown('scroll');
+        }
+      };
+      window.addEventListener('scroll', handleScroll, { passive: true });
+      return () => window.removeEventListener('scroll', handleScroll);
+    }, [isOpen]);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -405,17 +482,20 @@ export default function ChatWidget({ settings = {} }) {
     }
   }, [isOpen]);
 
-  const handleSend = async (text) => {
-    const msgText = text || input;
-    if (!msgText.trim() || isLoading) return;
+   const handleSend = async (text) => {
+     const msgText = text || input;
+     if (!msgText.trim() || isLoading) return;
 
-    const userMessage = { role: "user", content: msgText };
+     const userMessage = { role: "user", content: msgText };
 
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-    setIsLoading(true);
+     setMessages((prev) => [...prev, userMessage]);
+     setInput("");
+     setIsLoading(true);
 
-    try {
+     // Track user message
+     analytics.messageSent(visitorId, 'user', msgText.trim().length);
+
+     try {
       const payloadMessages = [...messagesRef.current, userMessage];
 
       const response = await fetch("/api/chat", {
@@ -427,29 +507,31 @@ export default function ChatWidget({ settings = {} }) {
       if (!response.ok) throw new Error("Chat failed");
       const data = await response.json();
 
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: data.content },
-      ]);
+       setMessages((prev) => [
+         ...prev,
+         { role: "assistant", content: data.content },
+       ]);
 
-      if (data?.leadCaptured) {
-        setLeadCaptured(true);
-        setCapturedWhatsapp(data.whatsapp);
-        setCapturedName(data.leadName);
-        setCapturedEmail(data.email || null);
-        const emailCheck = validateEmail(data.email);
-        setEmailValid(emailCheck.valid);
-        if (!emailCheck.valid && data.leadName) {
-          setEmailSuggestions(generateEmailSuggestions(data.leadName, data.email));
-        } else {
-          setEmailSuggestions([]);
-        }
-        setLeadScore(data.score);
-        setLeadCategory(data.category || "General");
-        setIsHighValue(data.isHighValue || false);
-        setConversationStage(data.stage || 'qualified');
-        setProgress(data.progress || null);
-      } else if (leadCaptured && !emailValid) {
+       // Track assistant message
+       analytics.messageSent(visitorId, 'assistant', data.content.length);
+
+       if (data?.leadCaptured) {
+         // Store lead data temporarily and request consent
+         setPendingLeadData(data);
+         
+         // Pre-fill company if available
+         if (data.company) {
+           setCapturedCompany(data.company);
+         }
+
+         if (hasConsent) {
+           // Already have consent, proceed with lead capture
+           finalizeLeadCapture(data);
+         } else {
+           // Need to request consent first
+           setShowConsentPrompt(true);
+         }
+       } else if (leadCaptured && !emailValid) {
         // Check if user typed an email in their message (manual fix after initial capture)
         const userMsg = messages.length > 0 ? messages[messages.length - 1]?.content : '';
         const emailMatch = userMsg.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i);
@@ -473,27 +555,34 @@ export default function ChatWidget({ settings = {} }) {
       } else if (data?.handoffRequested) {
         setShowHumanHelp(false);
         setConversationStage('handoff_requested');
-      } else if (data?.stage) {
-        setConversationStage(data.stage);
-        setProgress(data.progress || null);
-      }
-    } catch (error) {
-      console.error(error);
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: t('chat.chatUnavailable'),
-        },
-      ]);
-    } finally {
-      setIsLoading(false);
-    }
+       } else if (data?.stage) {
+         const prevStage = conversationStage;
+         setConversationStage(data.stage);
+         setProgress(data.progress || null);
+         // Track stage advancement
+         if (prevStage !== data.stage) {
+           analytics.stageAdvanced(visitorId, prevStage, data.stage);
+         }
+       }
+     } catch (error) {
+       console.error(error);
+       analytics.errorOccurred(visitorId, error, { context: 'chat_api' });
+       setMessages((prev) => [
+         ...prev,
+         {
+           role: "assistant",
+           content: t('chat.chatUnavailable'),
+         },
+       ]);
+     } finally {
+       setIsLoading(false);
+     }
   };
 
   const handleHumanHelp = async () => {
     setIsLoading(true);
     try {
+      analytics.humanHandoffRequested(visitorId, 'user_requested', 'normal');
       const response = await fetch("/api/handoff", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -529,11 +618,12 @@ export default function ChatWidget({ settings = {} }) {
     }
   };
 
-   const handleFeedback = async (rating) => {
-     setFeedbackGiven(true);
-     setShowFeedback(false);
-     try {
-       await fetch("/api/feedback", {
+    const handleFeedback = async (rating) => {
+      setFeedbackGiven(true);
+      setShowFeedback(false);
+      analytics.feedbackSubmitted(visitorId, rating, null);
+      try {
+        await fetch("/api/feedback", {
          method: "POST",
          headers: { "Content-Type": "application/json" },
          body: JSON.stringify({
@@ -547,39 +637,93 @@ export default function ChatWidget({ settings = {} }) {
      }
    };
 
-   const handleEmailSuggestion = async (suggestedEmail) => {
-     // Update the lead record directly
-     try {
-       const res = await fetch("/api/leads/update-email", {
-         method: "PATCH",
-         headers: { "Content-Type": "application/json" },
-         body: JSON.stringify({
-           visitorId,
-           email: suggestedEmail,
-         }),
-       });
+    const handleEmailSuggestion = async (suggestedEmail) => {
+      // Update the lead record directly
+      try {
+        const res = await fetch("/api/leads/update-email", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            visitorId,
+            email: suggestedEmail,
+          }),
+        });
 
-       if (res.ok) {
-         setCapturedEmail(suggestedEmail);
-         setEmailValid(true);
-         setEmailSuggestions([]);
+        if (res.ok) {
+          setCapturedEmail(suggestedEmail);
+          setEmailValid(true);
+          setEmailSuggestions([]);
+          
+          // Track email verification
+          const domain = suggestedEmail.split('@')[1];
+          analytics.emailVerified(visitorId, domain);
 
-         // Add confirmation message to chat
-         setMessages((prev) => [
-           ...prev,
-           {
-             role: "user",
-             content: `My email is: ${suggestedEmail}`,
-           },
-         ]);
+          // Add confirmation message to chat
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "user",
+              content: `My email is: ${suggestedEmail}`,
+            },
+          ]);
+        }
+      } catch (error) {
+        console.error("Email update error:", error);
+        analytics.errorOccurred(visitorId, error, { context: 'email_suggestion' });
+      }
+    };
 
-         // Optionally, fetch AI response acknowledging email
-         // (or just leave it as a user message - doesn't need AI response)
-       }
-     } catch (error) {
-       console.error("Email update error:", error);
-     }
-   };
+    const handleConsent = async (consentGiven) => {
+      if (consentGiven) {
+        setDataConsent(true);
+        setHasConsent(true);
+        analytics.consentGiven(visitorId, 'privacy');
+        if (pendingLeadData) {
+          await finalizeLeadCapture(pendingLeadData);
+        }
+      } else {
+        setDataConsent(false);
+        setShowConsentPrompt(false);
+        setPendingLeadData(null);
+        analytics.consentDeclined(visitorId, 'user_declined');
+        // Add a message to chat about consent decline
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: "No problem! I'll continue helping you without storing your personal data. Feel free to continue our conversation.",
+          },
+        ]);
+      }
+      setShowConsentPrompt(false);
+    };
+
+    const finalizeLeadCapture = (data) => {
+      setLeadCaptured(true);
+      setCapturedWhatsapp(data.whatsapp);
+      setCapturedName(data.leadName);
+      setCapturedCompany(data.company || null);
+      setCapturedEmail(data.email || null);
+      const emailCheck = validateEmail(data.email);
+      setEmailValid(emailCheck.valid);
+      if (!emailCheck.valid && data.leadName) {
+        setEmailSuggestions(generateEmailSuggestions(data.leadName, data.email));
+      } else {
+        setEmailSuggestions([]);
+      }
+      setLeadScore(data.score);
+      setLeadCategory(data.category || "General");
+      setIsHighValue(data.isHighValue || false);
+      setConversationStage(data.stage || 'qualified');
+      setProgress(data.progress || null);
+      setShowConsentPrompt(false);
+      setPendingLeadData(null);
+      
+      // Track lead capture with analytics
+      if (data.leadId) {
+        analytics.leadCaptured(visitorId, data.leadId, data.score, data.category || 'General');
+      }
+    };
 
   const showQuickReplies = messages.length <= 1 && !isLoading && !leadCaptured;
 
@@ -706,12 +850,52 @@ export default function ChatWidget({ settings = {} }) {
             </div>
           )}
 
-          {/* Messages */}
-          <div
-            ref={scrollRef}
-            className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50"
-          >
-            {messages.map((msg, i) => (
+            {/* Messages */}
+            <div
+              ref={scrollRef}
+              className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50"
+            >
+              {/* GDPR Consent Prompt */}
+              {showConsentPrompt && pendingLeadData && (
+                <div className="flex justify-start">
+                  <div className="flex gap-2 max-w-[85%]">
+                    <div
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-white shrink-0"
+                      style={{ backgroundColor: primaryColor }}
+                    >
+                      <Bot size={14} />
+                    </div>
+                    <div className="bg-white p-4 rounded-2xl shadow-sm border-l-4 rounded-tl-none"
+                         style={{ borderLeftColor: primaryColor }}>
+                      <p className="text-sm text-slate-800 mb-3">
+                        Before I save your details and connect you with suppliers, I need your explicit consent.
+                      </p>
+                      <div className="bg-slate-50 p-3 rounded-lg mb-3 text-xs text-slate-600 leading-relaxed">
+                        {getPrivacyNotice()}
+                      </div>
+                      <p className="text-sm font-bold text-slate-800 mb-2">
+                        Do you consent to us storing your information to provide our services?
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleConsent(true)}
+                          className="px-3 py-2 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700 transition-colors"
+                        >
+                          Yes, I Consent
+                        </button>
+                        <button
+                          onClick={() => handleConsent(false)}
+                          className="px-3 py-2 bg-slate-200 text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-300 transition-colors"
+                        >
+                          No, Decline
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {messages.map((msg, i) => (
               <div
                 key={i}
                 className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
@@ -983,37 +1167,59 @@ export default function ChatWidget({ settings = {} }) {
       {/* Notification Badge */}
       {!isOpen && showNotification && (
         <div
-          className="mb-3 bg-white rounded-2xl shadow-xl border border-slate-200 p-3 flex items-center gap-3 max-w-[280px]"
+          className="mb-3 bg-white rounded-2xl shadow-xl border border-slate-200 p-3 flex items-start gap-3 max-w-[280px]"
           style={{ animation: "float 3s ease-in-out infinite" }}
         >
           <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-white shrink-0"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-white shrink-0 mt-0.5"
             style={{ backgroundColor: primaryColor }}
           >
             <Bot size={16} />
           </div>
           <div className="flex-1">
-            <p className="text-xs font-bold text-slate-800">
+            <p className="text-xs font-bold text-slate-800 mb-1">
               👋 {t('chat.quickOptions')}?
             </p>
-            <p className="text-[10px] text-slate-500">
+            <p className="text-[10px] text-slate-500 mb-2">
               {t('chat.needHumanHelp')}
             </p>
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => {
+                  openChat();
+                  setShowNotification(false);
+                  // Track which trigger opened the chat
+                  analytics.chatOpened(visitorId, 'proactive_notification');
+                }}
+                className="flex-1 px-2 py-1.5 bg-blue-600 text-white text-[10px] font-bold rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                {t('chat.openChat')}
+              </button>
+              <button
+                onClick={() => {
+                  setShowNotification(false);
+                  disableTriggersForSession();
+                  analytics.triggerDismissed(visitorId, 'proactive_notification');
+                }}
+                className="px-2 py-1.5 text-slate-400 hover:text-slate-600 text-[10px]"
+                title="Don't show again this session"
+              >
+                <X size={14} />
+              </button>
+            </div>
           </div>
-          <button
-            onClick={() => setShowNotification(false)}
-            className="text-slate-300 hover:text-slate-500"
-          >
-            <X size={14} />
-          </button>
         </div>
       )}
 
-      {/* Toggle Button */}
+       {/* Toggle Button */}
       <button
         onClick={() => {
           toggleChat();
           setShowNotification(false);
+          // Track chat open event
+          if (isOpen) {
+            analytics.chatOpened(visitorId, 'manual_toggle');
+          }
         }}
         className="w-16 h-16 rounded-full shadow-2xl flex items-center justify-center text-white transition-all hover:scale-110 active:scale-95 relative"
         style={{ backgroundColor: primaryColor }}

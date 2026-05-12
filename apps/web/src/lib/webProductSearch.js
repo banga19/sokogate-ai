@@ -190,10 +190,14 @@ function extractProductsFromHTML($, limit = 5) {
       sku: p.sku,
       specifications: {},
       is_active: true,
+      url: p.url || null,
     }));
   }
 
-  // Fallback: parse via selectors
+  // Fallback: remove scripts to simplify selector parsing
+  $('script').remove();
+
+  // Parse via selectors
   const cards = $(SELECTORS.productCard);
   if (cards.length === 0) {
     // If no cards found with specific selectors, look for repeating product patterns
@@ -360,27 +364,25 @@ export async function searchProducts(query, limit = 5) {
   const searchURLs = buildSearchURLs(query);
   let lastError = null;
 
-  for (const url of searchURLs) {
-    try {
-      const html = await fetchURL(url);
-      const $ = cheerio.load(html);
-      
-      // Hide script tags to avoid parsing them as content
-      $('script').remove();
-      
-      const products = extractProductsFromHTML($, limit);
-      
-      if (products.length > 0) {
-        // Cache results
-        searchCache.set(cacheKey, products);
-        return products;
-      }
-    } catch (err) {
-      console.warn(`Web search attempt failed for ${url}:`, err.message);
-      lastError = err;
-      // Continue to next URL
-    }
-  }
+   for (const url of searchURLs) {
+     try {
+       const html = await fetchURL(url);
+       const $ = cheerio.load(html);
+
+       // Do NOT remove script tags here — JSON-LD extraction needs them
+       const products = extractProductsFromHTML($, limit);
+
+       if (products.length > 0) {
+         // Cache results
+         searchCache.set(cacheKey, products);
+         return products;
+       }
+     } catch (err) {
+       console.warn(`Web search attempt failed for ${url}:`, err.message);
+       lastError = err;
+       // Continue to next URL
+     }
+   }
 
   // All attempts failed
   console.error('All web search attempts failed:', lastError?.message);
@@ -398,33 +400,32 @@ export async function fetchProductDetails(productUrl) {
   const cached = searchCache.get(cacheKey);
   if (cached) return cached;
 
-  try {
-    const html = await fetchURL(productUrl);
-    const $ = cheerio.load(html);
-    $('script').remove();
+   try {
+     const html = await fetchURL(productUrl);
+     const $ = cheerio.load(html);
 
-    // Try JSON-LD on product page (most reliable)
-    const jsonldProducts = extractJSONLDProducts($);
-    if (jsonldProducts && jsonldProducts[0]) {
-      const p = jsonldProducts[0];
-      const result = {
-        name: p.name,
-        description: p.description,
-        price: p.price,
-        currency: p.currency || 'USD',
-        stock_quantity: p.availability?.includes('InStock') ? 100 : 0,
-        sku: p.sku,
-        specifications: {},
-        url: productUrl,
-      };
-      searchCache.set(cacheKey, result);
-      return result;
-    }
+     // Try JSON-LD on product page (most reliable)
+     const jsonldProducts = extractJSONLDProducts($);
+     if (jsonldProducts && jsonldProducts[0]) {
+       const p = jsonldProducts[0];
+       const result = {
+         name: p.name,
+         description: p.description,
+         price: p.price,
+         currency: p.currency || 'USD',
+         stock_quantity: p.availability?.includes('InStock') ? 100 : 0,
+         sku: p.sku,
+         specifications: {},
+         url: productUrl,
+       };
+       searchCache.set(cacheKey, result);
+       return result;
+     }
 
-    // Fallback selectors on product detail page
-    // (Could add detailed extraction here)
-    return null;
-  } catch (err) {
+     // Fallback selectors on product detail page
+     // (Could add detailed extraction here)
+     return null;
+   } catch (err) {
     console.warn(`Failed to fetch product details ${productUrl}:`, err.message);
     return null;
   }
