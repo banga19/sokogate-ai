@@ -2,15 +2,22 @@ import sql from "@/app/api/utils/sql";
 import { parseCSV, mapProspectRow } from "@/utils/csvImport";
 import { readFile } from "fs/promises";
 import path from "path";
+import { requireAdmin } from "@/app/api/utils/adminAuth";
 
-// Absolute path to sales-and-funding-assets (WSL2 Ubuntu)
-const CSV_PATH = "/home/apop/sales-and-funding-assets";
+// Use environment variable for assets path, fallback to default for backwards compatibility
+const CSV_PATH = process.env.ASSETS_BASE_PATH || process.env.SALES_ASSETS_PATH || "/home/apop/sales-and-funding-assets";
 
 export async function GET() {
   return Response.json({ message: "Import endpoint for prospects" });
 }
 
 export async function POST() {
+  // Admin authentication
+  const auth = await requireAdmin(request);
+  if (!auth.success) {
+    return Response.json({ error: auth.error }, { status: auth.status });
+  }
+
   try {
     // Read the CSV file
     const csvPath = path.join(CSV_PATH, "TRACKER-PROSPECTS.csv");
@@ -24,8 +31,9 @@ export async function POST() {
     let errorCount = 0;
     const errors = [];
 
-    for (const row of rows) {
+    for (let i = 0; i < rows.length; i++) {
       try {
+        const row = rows[i];
         const prospect = mapProspectRow(row);
 
         // Check if prospect already exists (by company + email if available)

@@ -1,20 +1,25 @@
 import sql from "@/app/api/utils/sql";
+import { requireAdmin } from "@/app/api/utils/adminAuth";
+import { ok, error } from "@/app/api/utils/apiResponse";
 
 export async function GET() {
   try {
     const settings =
       await sql`SELECT * FROM business_settings ORDER BY id DESC LIMIT 1`;
-    return Response.json(settings[0] || {});
+    return ok(settings[0] || {});
   } catch (error) {
     console.error(error);
-    return Response.json(
-      { error: "Failed to fetch settings" },
-      { status: 500 },
-    );
+    return error("Failed to fetch settings", 500);
   }
 }
 
 export async function POST(request) {
+  // Admin authentication
+  const auth = await requireAdmin(request);
+  if (!auth.success) {
+    return Response.json({ error: auth.error }, { status: auth.status });
+  }
+
   try {
     const {
       business_name,
@@ -31,12 +36,9 @@ export async function POST(request) {
       RETURNING *
     `;
 
-    return Response.json(settings[0]);
+    return ok(settings[0]);
   } catch (error) {
     console.error(error);
-    return Response.json(
-      { error: "Failed to update settings" },
-      { status: 500 },
-    );
+    return error("Failed to update settings", 500);
   }
 }

@@ -1,0 +1,24 @@
+# Development Dockerfile for Web App
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install dependencies (copy manifests first for layer caching)
+COPY apps/web/package*.json ./
+RUN npm ci
+
+# Copy source
+COPY apps/web/src ./src
+COPY apps/web/public ./public
+COPY apps/web/__create ./__create
+COPY apps/web/sql ./sql
+COPY apps/web/scripts ./scripts
+COPY apps/web/vite.config.ts ./
+COPY apps/web/react-router.config.ts ./
+COPY apps/web/tailwind.config.js ./
+COPY apps/web/postcss.config.js ./
+COPY apps/web/.env* ./
+
+EXPOSE 4000
+
+CMD ["npm", "run", "dev"]

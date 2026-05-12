@@ -8,6 +8,7 @@ export default function ResetPasswordPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token");
+  const email = searchParams.get("email"); // Added: retrieve email from URL
 
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -17,10 +18,10 @@ export default function ResetPasswordPage() {
   const [isValidToken, setIsValidToken] = useState(true);
 
   useEffect(() => {
-    if (!token) {
+    if (!token || !email) {
       setIsValidToken(false);
     }
-  }, [token]);
+  }, [token, email]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -44,7 +45,7 @@ export default function ResetPasswordPage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ token, password }),
+        body: JSON.stringify({ token, password, email }), // Include email
       });
 
       if (response.ok) {

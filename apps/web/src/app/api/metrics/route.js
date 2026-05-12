@@ -1,4 +1,5 @@
 import sql from "@/app/api/utils/sql";
+import { requireAdmin } from "@/app/api/utils/adminAuth";
 
 export async function GET(request) {
   try {
@@ -34,6 +35,12 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
+  // Admin authentication
+  const auth = await requireAdmin(request);
+  if (!auth.success) {
+    return Response.json({ error: auth.error }, { status: auth.status });
+  }
+
   try {
     const body = await request.json();
     const { week_number, date_range, metric_name, target_value, actual_value, unit, status, notes } = body;

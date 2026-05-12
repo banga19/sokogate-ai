@@ -1,5 +1,6 @@
 import sql from "@/app/api/utils/sql";
 import { generateInitialMetrics } from "@/utils/csvImport";
+import { requireAdmin } from "@/app/api/utils/adminAuth";
 
 export async function GET() {
   try {
@@ -12,6 +13,12 @@ export async function GET() {
 }
 
 export async function POST() {
+  // Admin authentication
+  const auth = await requireAdmin(request);
+  if (!auth.success) {
+    return Response.json({ error: auth.error }, { status: auth.status });
+  }
+
   try {
     // Check if metrics already exist
     const existing = await sql`SELECT COUNT(*) as count FROM weekly_metrics`;

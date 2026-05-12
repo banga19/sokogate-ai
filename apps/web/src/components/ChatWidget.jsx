@@ -23,6 +23,7 @@ import { useTranslation } from "@/contexts/TranslationContext";
 import { getUserIdentity, saveUserIdentity, extractIdentityFromText } from "@/utils/personalization";
 import { hasDataConsent, setDataConsent, getPrivacyNotice } from "@/utils/leadCapture";
 import { analytics, initSessionAnalytics } from "@/utils/analytics";
+import DOMPurify from "dompurify";
 
 const QUICK_REPLIES = [
   "I want to source electronics in bulk",
@@ -311,7 +312,7 @@ export default function ChatWidget({ settings = {} }) {
   const secondaryColor = settings.secondary_color || "#EF4444";
   const businessName = settings.business_name || "Sokogate";
 
-  // Format message helper
+  // Format message helper - sanitizes HTML to prevent XSS
   const formatMessage = (content) => {
     let formatted = content
       .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
@@ -335,7 +336,13 @@ export default function ChatWidget({ settings = {} }) {
       }
     );
 
-    return formatted;
+    // Sanitize HTML to prevent XSS attacks
+    return DOMPurify.sanitize(formatted, {
+      ALLOWED_TAGS: ['br', 'strong', 'a'],
+      ALLOWED_ATTR: ['href', 'target', 'rel', 'class'],
+      ALLOW_DATA_ATTR: false,
+      ALLOWED_URI_REGEXP: /^https?:\/\/wa\.me\/\d+/i
+    });
   };
 
   // Fetch visitor data on mount

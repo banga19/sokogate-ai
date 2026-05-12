@@ -1,4 +1,6 @@
 import sql from "@/app/api/utils/sql";
+import { requireAdmin } from "@/app/api/utils/adminAuth";
+import { invalidateKnowledgeCache } from "@/app/api/utils/knowledgeCache";
 
 // GET /api/knowledge?category=electronics&limit=20
 export async function GET(request) {
@@ -40,8 +42,14 @@ export async function GET(request) {
   }
 }
 
-// POST /api/knowledge - Admin only (should be protected)
+// POST /api/knowledge - Admin only
 export async function POST(request) {
+  // Admin authentication
+  const auth = await requireAdmin(request);
+  if (!auth.success) {
+    return Response.json({ error: auth.error }, { status: auth.status });
+  }
+
   try {
     const { category, question, answer, tags, priority, is_active, updated_by, id } = await request.json();
 
@@ -67,42 +75,53 @@ export async function POST(request) {
          WHERE id = ${id}
          RETURNING *
        `;
-       if (!result[0]) {
-         return Response.json({ error: "Knowledge entry not found" }, { status: 404 });
-       }
-       return Response.json({ knowledge: result[0], action: "updated" });
+      if (!result[0]) {
+        return Response.json({ error: "Knowledge entry not found" }, { status: 404 });
+      }
+      invalidateKnowledgeCache();
+      return Response.json({ knowledge: result[0], action: "updated" });
      } else {
-      // Insert new
-      const [result] = await sql`
-        INSERT INTO knowledge_base (category, question, answer, tags, priority, is_active, updated_by)
-        VALUES (${category}, ${question || null}, ${answer}, ${tags || null}, ${priority || 0}, ${is_active !== false}, ${updated_by || 'admin'})
-        RETURNING *
-      `;
-      return Response.json({ knowledge: result[0], action: "created" });
-    }
-  } catch (error) {
-    console.error("Error saving knowledge base:", error);
-    return Response.json({ error: "Failed to save" }, { status: 500 });
+       // Insert new
+       const [result] = await sql`
+         INSERT INTO knowledge_base (category, question, answer, tags, priority, is_active, updated_by)
+         VALUES (${category}, ${question || null}, ${answer}, ${tags || null}, ${priority || 0}, ${is_active !== false}, ${updated_by || 'admin'})
+         RETURNING *
+       `;
+       invalidateKnowledgeCache();
+       return Response.json({ knowledge: result[0], action: "created" });
+     }
+   } catch (error) {
+     console.error("Error saving knowledge base:", error);
+     return Response.json({ error: "Failed to save" }, { status: 500 });
+   }
+ }
+
+ // DELETE /api/knowledge?id=123 - Admin only
+ export async function DELETE(request) {
+   // Admin authentication
+   const auth = await requireAdmin(request);
+   if (!auth.success) {
+     return Response.json({ error: auth.error }, { status: auth.status });
+   }
+
+   try {
+     const { searchParams } = new URL(request.url);
+     const id = parseInt(searchParams.get("id"));
+
+     if (!id) {
+       return Response.json({ error: "ID required" }, { status: 400 });
+     }
+
+     const result = await sql`DELETE FROM knowledge_base WHERE id = ${id} RETURNING id`;
+     if (result.length === 0) {
+       return Response.json({ error: "Knowledge entry not found" }, { status: 404 });
+     }
+     invalidateKnowledgeCache();
+     return Response.json({ success: true, action: "deleted" });
+   } catch (error) {
+     console.error("Error deleting knowledge base entry:", error);
+     return Response.json({ error: "Failed to delete" }, { status: 500 });
+   }
   }
 }
 
-// DELETE /api/knowledge?id=123
-export async function DELETE(request) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const id = parseInt(searchParams.get("id"));
-
-    if (!id) {
-      return Response.json({ error: "ID required" }, { status: 400 });
-    }
-
-    const result = await sql`DELETE FROM knowledge_base WHERE id = ${id} RETURNING id`;
-    if (result.length === 0) {
-      return Response.json({ error: "Knowledge entry not found" }, { status: 404 });
-    }
-    return Response.json({ success: true, action: "deleted" });
-  } catch (error) {
-    console.error("Error deleting knowledge base entry:", error);
-    return Response.json({ error: "Failed to delete" }, { status: 500 });
-  }
-}

@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database (Neon-compatible)
+  postgres:
+    image: neon/postgres:latest
+    container_name: sokogate-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: sokogate_db
+      POSTGRES_USER: sokogate_user
+      POSTGRES_PASSWORD: sokogate_pass_2026
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - sokogate-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sokogate_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Web Application (Development)
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile.dev
+    container_name: sokogate-web-dev
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./apps/web:/app
+      - /app/node_modules
+      - /app/build
+    environment:
+      - NODE_ENV=development
+      - NODE_OPTIONS=--max-old-space-size=4096
+      - DATABASE_URL=postgresql://sokogate_user:sokogate_pass_2026@postgres:5432/sokogate_db
+      - AUTH_SECRET=dev-secret-change-in-production-min-32-bytes
+      - ADMIN_EMAILS=admin@example.com
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-dev-key}
+      # Firebase env vars from .env file
+      - VITE_FIREBASE_API_KEY=${VITE_FIREBASE_API_KEY}
+      - VITE_FIREBASE_AUTH_DOMAIN=${VITE_FIREBASE_AUTH_DOMAIN}
+      - VITE_FIREBASE_PROJECT_ID=${VITE_FIREBASE_PROJECT_ID}
+      - VITE_FIREBASE_STORAGE_BUCKET=${VITE_FIREBASE_STORAGE_BUCKET}
+      - VITE_FIREBASE_MESSAGING_SENDER_ID=${VITE_FIREBASE_MESSAGING_SENDER_ID}
+      - VITE_FIREBASE_APP_ID=${VITE_FIREBASE_APP_ID}
+    env_file:
+      - ./apps/web/.env
+    networks:
+      - sokogate-network
+    command: npm run dev
+
+  # Adminer (Database GUI)
+  adminer:
+    image: adminer:4.8.1
+    container_name: sokogate-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    networks:
+      - sokogate-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  sokogate-network:
+    driver: bridge

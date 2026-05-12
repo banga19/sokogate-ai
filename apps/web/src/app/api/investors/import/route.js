@@ -2,15 +2,22 @@ import sql from "@/app/api/utils/sql";
 import { parseCSV, mapInvestorRow } from "@/utils/csvImport";
 import { readFile } from "fs/promises";
 import path from "path";
+import { requireAdmin } from "@/app/api/utils/adminAuth";
 
-// Absolute path to sales-and-funding-assets (WSL2 Ubuntu)
-const CSV_PATH = "/home/apop/sales-and-funding-assets";
+// Use environment variable for assets path, fallback to default for backwards compatibility
+const CSV_PATH = process.env.ASSETS_BASE_PATH || process.env.SALES_ASSETS_PATH || "/home/apop/sales-and-funding-assets";
 
 export async function GET() {
   return Response.json({ message: "Import endpoint for investors" });
 }
 
 export async function POST() {
+  // Admin authentication
+  const auth = await requireAdmin(request);
+  if (!auth.success) {
+    return Response.json({ error: auth.error }, { status: auth.status });
+  }
+
   try {
     const csvPath = path.join(CSV_PATH, "TRACKER-INVESTORS.csv");
     const csvContent = await readFile(csvPath, "utf-8");
@@ -22,6 +29,7 @@ export async function POST() {
 
     for (let i = 0; i < rows.length; i++) {
       try {
+        const row = rows[i];
         const investor = mapInvestorRow(row);
 
         // Skip if already imported (by fund name)

@@ -6,7 +6,7 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'development'
     ? false
-    : { rejectUnauthorized: false },
+    : { rejectUnauthorized: true },
 });
 const adapter = NeonAdapter(pool);
 
@@ -30,18 +30,19 @@ export async function POST(request) {
       });
     }
 
-    const token = randomBytes(32).toString('hex');
-    const expires = new Date(Date.now() + 3600000);
+     const token = randomBytes(32).toString('hex');
+     const expires = new Date(Date.now() + 3600000);
 
-    await adapter.createVerificationToken({
-      identifier: email,
-      token,
-      expires,
-    });
+     await adapter.createVerificationToken({
+       identifier: email,
+       token,
+       expires,
+     });
 
-    const resetUrl = `${process.env.AUTH_URL || 'http://localhost:3000'}/account/reset-password?token=${token}`;
+     // Include email in reset URL so the frontend can send it with password reset
+     const resetUrl = `${process.env.AUTH_URL || 'http://localhost:3000'}/account/reset-password?email=${encodeURIComponent(email)}&token=${token}`;
 
-    console.log(`Password reset link for ${email}: ${resetUrl}`);
+     console.log(`Password reset link for ${email}: ${resetUrl}`);
 
     return new Response(JSON.stringify({ message: 'If an account exists, a reset email will be sent' }), {
       status: 200,

@@ -13,13 +13,14 @@ let _app = null;
 let _auth = null;
 let _googleProvider = null;
 
-const defaultFirebaseConfig = {
-  apiKey: "AIzaSyDdUoYg7bbl3O6mH2z9mwFCXbWKpSKndas",
-  authDomain: "ultimo-trading-c-1747477956665.firebaseapp.com",
-  projectId: "ultimo-trading-c-1747477956665",
-  storageBucket: "ultimo-trading-c-1747477956665.firebasestorage.app",
-  messagingSenderId: "1087620624424",
-  appId: "1:1087620624424:web:eb15c0fe778d61206f051d"
+// Development fallback values (dummy/placeholder - NOT for production)
+const devFirebaseConfig = {
+  apiKey: "dev-api-key-placeholder",
+  authDomain: "dev-project.firebaseapp.com",
+  projectId: "dev-project",
+  storageBucket: "dev-project.firebasestorage.app",
+  messagingSenderId: "000000000000",
+  appId: "1:000000000000:web:0000000000000000000000"
 };
 
 function getFirebase() {
@@ -28,20 +29,42 @@ function getFirebase() {
   }
   
   if (!_app) {
-    const firebaseConfig = {
-      apiKey: import.meta.env.VITE_FIREBASE_API_KEY || defaultFirebaseConfig.apiKey,
-      authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || defaultFirebaseConfig.authDomain,
-      projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || defaultFirebaseConfig.projectId,
-      storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || defaultFirebaseConfig.storageBucket,
-      messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || defaultFirebaseConfig.messagingSenderId,
-      appId: import.meta.env.VITE_FIREBASE_APP_ID || defaultFirebaseConfig.appId
-    };
+    const isProd = import.meta.env.PROD;
+    const getEnv = (key) => import.meta.env[key];
     
+    // Required environment variables in production
+    const requiredEnvVars = [
+      'VITE_FIREBASE_API_KEY',
+      'VITE_FIREBASE_AUTH_DOMAIN',
+      'VITE_FIREBASE_PROJECT_ID',
+      'VITE_FIREBASE_STORAGE_BUCKET',
+      'VITE_FIREBASE_MESSAGING_SENDER_ID',
+      'VITE_FIREBASE_APP_ID'
+    ];
+    
+    // Check if we're missing required env vars in production
+    if (isProd) {
+      const missing = requiredEnvVars.filter(key => !getEnv(key));
+      if (missing.length > 0) {
+        console.error('❌ Missing required Firebase environment variables:', missing);
+        throw new Error('Firebase configuration incomplete. Check environment variables.');
+      }
+    }
+    
+    const firebaseConfig = {
+      apiKey: getEnv('VITE_FIREBASE_API_KEY') || devFirebaseConfig.apiKey,
+      authDomain: getEnv('VITE_FIREBASE_AUTH_DOMAIN') || devFirebaseConfig.authDomain,
+      projectId: getEnv('VITE_FIREBASE_PROJECT_ID') || devFirebaseConfig.projectId,
+      storageBucket: getEnv('VITE_FIREBASE_STORAGE_BUCKET') || devFirebaseConfig.storageBucket,
+      messagingSenderId: getEnv('VITE_FIREBASE_MESSAGING_SENDER_ID') || devFirebaseConfig.messagingSenderId,
+      appId: getEnv('VITE_FIREBASE_APP_ID') || devFirebaseConfig.appId
+    };
+     
     _app = initializeApp(firebaseConfig);
     _auth = getAuth(_app);
     _googleProvider = new GoogleAuthProvider();
   }
-  
+   
   return { app: _app, auth: _auth, googleProvider: _googleProvider };
 }
 

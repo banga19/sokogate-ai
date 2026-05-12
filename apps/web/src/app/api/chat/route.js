@@ -4,12 +4,47 @@ import { scoreLeadFromText } from "@/utils/leadScoring";
 import { serverEvents } from "@/server/pubsub";
 import Anthropic from "@anthropic-ai/sdk";
 import { fetchProductDetails, searchProducts } from "@/lib/webProductSearch";
+import { applyRateLimit } from "@/app/api/utils/rateLimiter";
+import { getCachedKnowledge, setCachedKnowledge } from "@/app/api/utils/knowledgeCache";
 
 
 const CATEGORIES = [
   "Apparel & Fabrics", "Electronics", "Agriculture & Food", "Auto Parts",
   "Health & Beauty", "Machinery & Parts", "Home & Construction", "Sports & Toys", "Other"
 ];
+
+// Retry helper with exponential backoff
+async function retryWithBackoff(fn, maxRetries = 3, initialDelay = 1000) {
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      
+      // Don't retry on client errors (4xx except 429)
+      if (error.status === 400 || (error.status >= 500 && error.status < 600 && attempt === maxRetries)) {
+        throw error;
+      }
+      
+      // Only retry on rate limits (429) or server errors (5xx)
+      const shouldRetry = error.status === 429 || error.status >= 500;
+      if (!shouldRetry || attempt === maxRetries) {
+        throw error;
+      }
+      
+      // Calculate delay with exponential backoff + jitter
+      const delay = Math.min(initialDelay * Math.pow(2, attempt) + Math.random() * 1000, 30000);
+      
+      // Respect Retry-After header if present
+      const retryAfter = error.headers?.get('retry-after');
+      const waitTime = retryAfter ? parseInt(retryAfter, 10) * 1000 : delay;
+      
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+  }
+  throw lastError;
+}
 
 // ============================================
 // UTILITIES
@@ -308,18 +343,14 @@ async function createHandoffRecord(leadId, visitorId, reason, urgency) {
 // CACHING LAYER
 // ============================================
 
-let knowledgeBaseCache = null;
-let knowledgeBaseCacheTime = 0;
-const KNOWLEDGE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-
 async function getCachedKnowledgeBase() {
-  if (knowledgeBaseCache && (Date.now() - knowledgeBaseCacheTime < KNOWLEDGE_CACHE_TTL_MS)) {
-    return knowledgeBaseCache;
-  }
+  // Try shared cache first
+  const cached = getCachedKnowledge();
+  if (cached) return cached;
+  
   try {
     const result = await sql`SELECT question, answer, category, priority FROM knowledge_base WHERE is_active = TRUE ORDER BY priority DESC LIMIT 15`;
-    knowledgeBaseCache = result;
-    knowledgeBaseCacheTime = Date.now();
+    setCachedKnowledge(result);
     return result;
   } catch (e) {
     console.warn("Knowledge base fetch failed:", e);
@@ -329,8 +360,74 @@ async function getCachedKnowledgeBase() {
 
 export async function POST(request) {
   try {
+    // Request size validation
+    const contentType = request.headers.get('content-type') || '';
+    const contentLength = parseInt(request.headers.get('content-length') || '0', 10);
+    
+    // Enforce max body size (10MB)
+    const MAX_BODY_SIZE = 10 * 1024 * 1024;
+    if (contentLength > MAX_BODY_SIZE) {
+      return Response.json(
+        { error: 'Request too large', maxSize: '10MB' },
+        { status: 413 }
+      );
+    }
+    
+    // Parse body with size limit (JSON parse can be memory intensive)
+    const reader = request.body;
+    if (!reader) {
+      return Response.json({ error: 'Empty body' }, { status: 400 });
+    }
+    
     const { messages, visitorId: providedVisitorId } = await request.json();
     const safeMessages = Array.isArray(messages) ? messages : [];
+    
+    // Limit number of messages to prevent abuse
+    if (safeMessages.length > 50) {
+      return Response.json(
+        { error: 'Too many messages in request', max: 50 },
+        { status: 400 }
+      );
+    }
+    
+    // Limit total message content size
+    const totalContentLength = safeMessages.reduce((sum, msg) => {
+      return sum + (msg?.content?.length || 0);
+    }, 0);
+    if (totalContentLength > 100000) { // 100KB of raw text
+      return Response.json(
+        { error: 'Total message content too large' },
+        { status: 400 }
+      );
+    }
+
+    // Rate limiting: per visitorId (session) and per IP (network)
+    const clientIP = request.headers.get('x-forwarded-for') || 
+                     request.headers.get('x-real-ip') || 
+                     request.headers.get('cf-connecting-ip') || 
+                     'unknown';
+    
+    const sessionId = providedVisitorId || ('vis_' + Math.random().toString(36).substr(2,9) + Date.now().toString(36));
+    
+    // Use visitorId for session-based rate limiting, fallback to IP
+    const sessionId = providedVisitorId || ('vis_' + Math.random().toString(36).substr(2,9) + Date.now().toString(36));
+    
+    // Check rate limit: 30 requests per minute per session, 60 per minute per IP
+    const sessionLimit = applyRateLimit(request, sessionId, {
+      maxRequests: 30,
+      windowMs: 60 * 1000,
+      getIdentifier: () => sessionId,
+    });
+    
+    if (sessionLimit) return sessionLimit;
+    
+    const ipLimit = applyRateLimit(request, `ip:${clientIP}`, {
+      maxRequests: 60,
+      windowMs: 60 * 1000,
+      getIdentifier: () => `ip:${clientIP}`,
+    });
+    
+    if (ipLimit) return ipLimit;
 
     // Visitor
     let visitorId = providedVisitorId || ('vis_' + Math.random().toString(36).substr(2,9) + Date.now().toString(36));
@@ -551,28 +648,32 @@ DO NOT mention LEAD_DATA or HANDOFF tokens to user. Ask only for missing info, n
       content: msg.content
     }));
 
-    // Anthropic Claude call
-    let aiContent;
-    try {
-      const apiKey = process.env.ANTHROPIC_API_KEY;
-      if (!apiKey) {
-        throw new Error("Anthropic API key not configured");
-      }
-      const anthropic = new Anthropic({ apiKey });
+     // Anthropic Claude call with retry logic
+     let aiContent;
+     try {
+       const apiKey = process.env.ANTHROPIC_API_KEY;
+       if (!apiKey) {
+         throw new Error("Anthropic API key not configured");
+       }
+       const anthropic = new Anthropic({ apiKey });
 
-      const msg = await anthropic.messages.create({
-        model: "claude-3-5-haiku-latest",
-        max_tokens: 1024,
-        system: fullSystemPrompt,
-        messages: anthropicMessages,
-        temperature: 0.7,
-      });
+       const msg = await retryWithBackoff(() =>
+         anthropic.messages.create({
+           model: "claude-3-5-haiku-latest",
+           max_tokens: 1024,
+           system: fullSystemPrompt,
+           messages: anthropicMessages,
+           temperature: 0.7,
+         }),
+         3, // max retries
+         1000 // initial delay
+       );
 
-      aiContent = msg.content[0].text;
-    } catch (error) {
-      console.error("Anthropic error:", error.message);
-      return Response.json({ content: "I'm having connection trouble. Try again or WhatsApp us.", leadCaptured: false, stage: currentStage });
-    }
+       aiContent = msg.content[0].text;
+     } catch (error) {
+       console.error("Anthropic error:", error.message);
+       return Response.json({ content: "I'm having connection trouble. Try again or WhatsApp us.", leadCaptured: false, stage: currentStage });
+     }
 
     // Log
     await logInteraction(visitorId, visitor.lead_id, latestUserText, aiContent);

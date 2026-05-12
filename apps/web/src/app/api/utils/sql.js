@@ -7,16 +7,16 @@ function createSqlClient(url) {
     return createMockSql();
   }
 
-  try {
-    const pool = new Pool({
-      connectionString: url,
-      max: 10,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
-      ssl: process.env.NODE_ENV === 'development' 
-        ? false 
-        : { rejectUnauthorized: false },
-    });
+   try {
+     const pool = new Pool({
+       connectionString: url,
+       max: 10,
+       idleTimeoutMillis: 30000,
+       connectionTimeoutMillis: 5000,
+       ssl: process.env.NODE_ENV === 'development'
+         ? false
+         : { rejectUnauthorized: true },
+     });
 
     // Test the connection on startup
     pool.query('SELECT 1').catch(err => {

@@ -6,16 +6,16 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'development'
     ? false
-    : { rejectUnauthorized: false },
+    : { rejectUnauthorized: true },
 });
 const adapter = NeonAdapter(pool);
 
 export async function POST(request) {
   try {
-    const { token, password } = await request.json();
+    const { token, password, email } = await request.json();
 
-    if (!token || !password) {
-      return new Response(JSON.stringify({ error: 'Token and password are required' }), {
+    if (!token || !password || !email) {
+      return new Response(JSON.stringify({ error: 'Token, email, and password are required' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -28,8 +28,9 @@ export async function POST(request) {
       });
     }
 
+    // Use the provided email as identifier (from reset link)
     const verificationToken = await adapter.useVerificationToken({
-      identifier: '',
+      identifier: email,
       token,
     });
 

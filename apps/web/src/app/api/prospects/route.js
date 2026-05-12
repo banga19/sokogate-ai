@@ -1,4 +1,5 @@
 import sql from "@/app/api/utils/sql";
+import { requireAdmin } from "@/app/api/utils/adminAuth";
 
 export async function GET() {
   try {
@@ -11,6 +12,12 @@ export async function GET() {
 }
 
 export async function POST(request) {
+  // Admin authentication
+  const auth = await requireAdmin(request);
+  if (!auth.success) {
+    return Response.json({ error: auth.error }, { status: auth.status });
+  }
+
   try {
     const body = await request.json();
     const {
@@ -54,6 +61,12 @@ export async function POST(request) {
 }
 
 export async function PATCH(request) {
+  // Admin authentication
+  const auth = await requireAdmin(request);
+  if (!auth.success) {
+    return Response.json({ error: auth.error }, { status: auth.status });
+  }
+
   try {
     const { id, ...updates } = await request.json();
 
@@ -98,6 +111,12 @@ export async function PATCH(request) {
 }
 
 export async function DELETE(request) {
+  // Admin authentication
+  const auth = await requireAdmin(request);
+  if (!auth.success) {
+    return Response.json({ error: auth.error }, { status: auth.status });
+  }
+
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");

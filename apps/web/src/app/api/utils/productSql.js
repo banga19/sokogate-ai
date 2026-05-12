@@ -6,16 +6,16 @@ function createPool(url) {
     console.warn('   To enable real-time product data, set PRODUCTS_DATABASE_URL to your Neon/Postgres connection string');
     return null;
   }
-  console.log(`✅ Product database configured: ${url.split('@')[1]?.split('?')[0] || 'custom DB'}`);
-  return new Pool({
-    connectionString: url,
-    max: 10,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000,
-    ssl: process.env.NODE_ENV === 'development'
-      ? false
-      : { rejectUnauthorized: false },
-  });
+   console.log(`✅ Product database configured: ${url ? 'connected' : 'custom DB'}`);
+   return new Pool({
+     connectionString: url,
+     max: 10,
+     idleTimeoutMillis: 30000,
+     connectionTimeoutMillis: 2000,
+     ssl: process.env.NODE_ENV === 'development'
+       ? false
+       : { rejectUnauthorized: true },
+   });
 }
 
 // Use dedicated products DB if configured, otherwise use main DATABASE_URL

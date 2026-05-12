@@ -1,13 +1,16 @@
 import sql from "@/app/api/utils/sql";
 import { serverEvents } from "@/server/pubsub";
 import { parseCSV, mapLeadRow, validateLead } from "@/utils/csvImport";
+import { requireAdmin } from "@/app/api/utils/adminAuth";
 
 export async function POST(request) {
-  try {
-    // Check authentication - this endpoint should be admin-only
-    // We'll just verify the request has proper session via a middleware check
-    // For now, we'll accept the request; frontend should route through ProtectedRoute
+  // Admin authentication
+  const auth = await requireAdmin(request);
+  if (!auth.success) {
+    return Response.json({ error: auth.error }, { status: auth.status });
+  }
 
+  try {
     const formData = await request.formData();
     const file = formData.get('file');
 
