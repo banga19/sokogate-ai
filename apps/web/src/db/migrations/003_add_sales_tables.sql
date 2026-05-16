@@ -147,19 +147,23 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER IF NOT EXISTS update_sales_prospects_updated_at
+DROP TRIGGER IF EXISTS update_sales_prospects_updated_at ON sales_prospects;
+CREATE TRIGGER update_sales_prospects_updated_at
   BEFORE UPDATE ON sales_prospects
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER IF NOT EXISTS update_investors_updated_at
+DROP TRIGGER IF EXISTS update_investors_updated_at ON investors;
+CREATE TRIGGER update_investors_updated_at
   BEFORE UPDATE ON investors
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER IF NOT EXISTS update_partnerships_updated_at
+DROP TRIGGER IF EXISTS update_partnerships_updated_at ON partnerships;
+CREATE TRIGGER update_partnerships_updated_at
   BEFORE UPDATE ON partnerships
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER IF NOT EXISTS update_weekly_metrics_updated_at
+DROP TRIGGER IF EXISTS update_weekly_metrics_updated_at ON weekly_metrics;
+CREATE TRIGGER update_weekly_metrics_updated_at
   BEFORE UPDATE ON weekly_metrics
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 

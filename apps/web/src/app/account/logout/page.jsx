@@ -12,7 +12,13 @@ export default function SignOutPage() {
   useEffect(() => {
     const performSignOut = async () => {
       try {
-        await signOut({ callbackUrl: "/" });
+        // Clear Firebase session
+        await signOut();
+        // Clear the @auth/core session cookie so any subsequent authenticated
+        // request will be rejected with 401 until the next sign-in.
+        document.cookie =
+          "authjs.session-token=; Path=/; Max-Age=0; SameSite=None; HttpOnly";
+        navigate("/");
       } catch (error) {
         console.error("Sign out error:", error);
         navigate("/");

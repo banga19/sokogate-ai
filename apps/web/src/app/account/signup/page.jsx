@@ -38,12 +38,27 @@ export default function SignUpPage() {
       
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
-      
+
       if (user) {
         // Update profile with name
         if (name) {
           await user.updateProfile({ displayName: name });
         }
+
+        // ── Bridge step: exchange Firebase ID token for an @auth/core session cookie ──
+        const idToken = await user.getIdToken(true);
+        const bridgeRes = await fetch("/api/auth/firebase", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ idToken }),
+        });
+
+        if (!bridgeRes.ok) {
+          const bridgeData = await bridgeRes.json().catch(() => ({}));
+          console.warn("Session bridge failed:", bridgeData.error || bridgeRes.statusText);
+        }
+
         navigate("/dashboard");
       }
     } catch (err) {
@@ -59,9 +74,23 @@ export default function SignUpPage() {
     try {
       const { auth, googleProvider } = getFirebase();
       if (!auth || !googleProvider) throw new Error("Firebase not initialized");
-      
+
       const result = await signInWithPopup(auth, googleProvider);
       if (result.user) {
+        // ── Bridge step: exchange Firebase ID token for an @auth/core session cookie ──
+        const idToken = await result.user.getIdToken(true);
+        const bridgeRes = await fetch("/api/auth/firebase", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ idToken }),
+        });
+
+        if (!bridgeRes.ok) {
+          const bridgeData = await bridgeRes.json().catch(() => ({}));
+          console.warn("Session bridge failed:", bridgeData.error || bridgeRes.statusText);
+        }
+
         navigate("/dashboard");
       }
     } catch (err) {

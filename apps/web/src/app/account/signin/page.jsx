@@ -22,9 +22,24 @@ export default function SignInPage() {
     try {
       const { auth } = getFirebase();
       if (!auth) throw new Error("Firebase not initialized");
-      
+
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       if (userCredential.user) {
+        // ── Bridge step: exchange Firebase ID token for an @auth/core session cookie ──
+        const idToken = await userCredential.user.getIdToken(true);
+        const bridgeRes = await fetch("/api/auth/firebase", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ idToken }),
+        });
+
+        if (!bridgeRes.ok) {
+          const bridgeData = await bridgeRes.json().catch(() => ({}));
+          console.warn("Session bridge failed:", bridgeData.error || bridgeRes.statusText);
+          // Non-fatal: continue to dashboard; admin calls may fail until the bridge succeeds
+        }
+
         navigate("/dashboard");
       }
     } catch (err) {
@@ -40,9 +55,23 @@ export default function SignInPage() {
     try {
       const { auth, googleProvider } = getFirebase();
       if (!auth || !googleProvider) throw new Error("Firebase not initialized");
-      
+
       const result = await signInWithPopup(auth, googleProvider);
       if (result.user) {
+        // ── Bridge step: exchange Firebase ID token for an @auth/core session cookie ──
+        const idToken = await result.user.getIdToken(true);
+        const bridgeRes = await fetch("/api/auth/firebase", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ idToken }),
+        });
+
+        if (!bridgeRes.ok) {
+          const bridgeData = await bridgeRes.json().catch(() => ({}));
+          console.warn("Session bridge failed:", bridgeData.error || bridgeRes.statusText);
+        }
+
         navigate("/dashboard");
       }
     } catch (err) {

@@ -54,19 +54,20 @@ import { useRealtimeLeads } from "@/utils/useRealtimeLeads";
 import LeadImportModal from "@/components/LeadImportModal";
 
 const fetchLeads = async () => {
-  const res = await fetch("/api/leads");
+  const res = await fetch("/api/leads", { credentials: "include" });
   if (!res.ok) return [];
   return res.json();
 };
 
 const fetchAnalytics = async () => {
-  const res = await fetch("/api/leads/analytics");
+  const res = await fetch("/api/leads/analytics", { credentials: "include" });
   if (!res.ok) return { total: 0, highIntent: 0, qualified: 0 };
   return res.json();
 };
 
 const updateLeadStatus = async ({ id, status }) => {
   const res = await fetch("/api/leads", {
+    credentials: "include",
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id, status }),
@@ -683,13 +684,14 @@ export default function DashboardPage() {
      },
    });
 
-   const updatePaymentMutation = useMutation({
-     mutationFn: async ({ id, payment_status }) => {
-       const res = await fetch("/api/leads", {
-         method: "PATCH",
-         headers: { "Content-Type": "application/json" },
-         body: JSON.stringify({ id, payment_status }),
-       });
+    const updatePaymentMutation = useMutation({
+      mutationFn: async ({ id, payment_status }) => {
+        const res = await fetch("/api/leads", {
+          credentials: "include",
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, payment_status }),
+        });
        if (!res.ok) throw new Error("Failed to update payment status");
        return res.json();
      },
@@ -702,6 +704,7 @@ export default function DashboardPage() {
   const updateShippingMutation = useMutation({
     mutationFn: async ({ id, shipping_status }) => {
       const res = await fetch("/api/leads", {
+        credentials: "include",
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, shipping_status }),
@@ -715,9 +718,10 @@ export default function DashboardPage() {
     },
   });
 
-    const createLeadMutation = useMutation({
+     const createLeadMutation = useMutation({
        mutationFn: async (leadData) => {
          const res = await fetch("/api/leads", {
+           credentials: "include",
            method: "POST",
            headers: { "Content-Type": "application/json" },
            body: JSON.stringify(leadData),

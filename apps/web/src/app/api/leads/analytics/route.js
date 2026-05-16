@@ -1,10 +1,10 @@
 import sql from "@/app/api/utils/sql";
-import { requireAdmin } from "@/app/api/utils/adminAuth";
+import { requireUser } from "@/app/api/utils/adminAuth";
 
 export async function GET(request) {
   try {
-    // Admin authentication
-    const auth = await requireAdmin(request);
+    // Accept any valid authenticated session (admin data visible to all logged-in users)
+    const auth = await requireUser(request);
     if (!auth.success) {
       return Response.json({ error: auth.error }, { status: auth.status });
     }

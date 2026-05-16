@@ -216,26 +216,32 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS update_business_settings_updated_at ON business_settings;
 CREATE TRIGGER update_business_settings_updated_at
   BEFORE UPDATE ON business_settings
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_leads_updated_at ON leads;
 CREATE TRIGGER update_leads_updated_at
   BEFORE UPDATE ON leads
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_handoff_requests_updated_at ON handoff_requests;
 CREATE TRIGGER update_handoff_requests_updated_at
   BEFORE UPDATE ON handoff_requests
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_products_updated_at ON products;
 CREATE TRIGGER update_products_updated_at
   BEFORE UPDATE ON products
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_knowledge_base_updated_at ON knowledge_base;
 CREATE TRIGGER update_knowledge_base_updated_at
   BEFORE UPDATE ON knowledge_base
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_visitors_updated_at ON visitors;
 CREATE TRIGGER update_visitors_updated_at
   BEFORE UPDATE ON visitors
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -383,19 +389,3 @@ CREATE INDEX IF NOT EXISTS idx_handoff_status ON handoff_requests(status);
 CREATE INDEX IF NOT EXISTS idx_handoff_lead ON handoff_requests(lead_id);
 CREATE INDEX IF NOT EXISTS idx_handoff_visitor ON handoff_requests(visitor_id);
 
--- Add trigger for handoff_requests updated_at
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER IF NOT EXISTS update_handoff_requests_updated_at
-  BEFORE UPDATE ON handoff_requests
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER IF NOT EXISTS update_visitors_updated_at
-  BEFORE UPDATE ON visitors
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
