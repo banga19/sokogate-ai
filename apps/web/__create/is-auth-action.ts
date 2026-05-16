@@ -14,6 +14,8 @@ export function isAuthAction(
     pathname: string,
 ): boolean {
     const base = '/api/auth'
+    // Match /api/auth exactly (bare auth path) or /api/auth/<action>[/<provider>]
+    if (pathname === base) return true
     const a = pathname.match(new RegExp(`^${base}(.+)`))
 
     if (a === null) {

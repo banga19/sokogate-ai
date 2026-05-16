@@ -16,7 +16,9 @@ export type AnalyticsEvent =
   | { type: 'trigger_shown'; visitorId: string; triggerType: string; timestamp: number }
   | { type: 'trigger_dismissed'; visitorId: string; triggerType: string; timestamp: number }
   | { type: 'email_verified'; visitorId: string; emailDomain: string; timestamp: number }
-  | { type: 'error_occurred'; visitorId: string; error: string; context: Record<string, any>; timestamp: number };
+  | { type: 'error_occurred'; visitorId: string; error: string; context: Record<string, any>; timestamp: number }
+  | { type: 'user_typing_start'; visitorId: string; timestamp: number }
+  | { type: 'user_typing_end'; visitorId: string; timestamp: number };
 
 class AnalyticsEngine {
   private logs: AnalyticsEvent[] = [];
@@ -112,6 +114,14 @@ class AnalyticsEngine {
 
   feedbackSubmitted(visitorId: string, rating: number, feedback: string | null) {
     this.track({ type: 'feedback_submitted', visitorId, rating, feedback, timestamp: Date.now() });
+  }
+
+  userTypingStart(visitorId: string) {
+    this.track({ type: 'user_typing_start', visitorId, timestamp: Date.now() });
+  }
+
+  userTypingEnd(visitorId: string) {
+    this.track({ type: 'user_typing_end', visitorId, timestamp: Date.now() });
   }
 
   triggerShown(visitorId: string, triggerType: string) {

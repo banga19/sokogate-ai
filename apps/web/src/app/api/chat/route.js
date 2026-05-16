@@ -402,15 +402,14 @@ export async function POST(request) {
     }
 
     // Rate limiting: per visitorId (session) and per IP (network)
-    const clientIP = request.headers.get('x-forwarded-for') || 
-                     request.headers.get('x-real-ip') || 
-                     request.headers.get('cf-connecting-ip') || 
+    const clientIP = request.headers.get('x-forwarded-for') ||
+                     request.headers.get('x-real-ip') ||
+                     request.headers.get('cf-connecting-ip') ||
                      'unknown';
-    
+
     const sessionId = providedVisitorId || ('vis_' + Math.random().toString(36).substr(2,9) + Date.now().toString(36));
-    
+
     // Use visitorId for session-based rate limiting, fallback to IP
-    const sessionId = providedVisitorId || ('vis_' + Math.random().toString(36).substr(2,9) + Date.now().toString(36));
     
     // Check rate limit: 30 requests per minute per session, 60 per minute per IP
     const sessionLimit = applyRateLimit(request, sessionId, {

@@ -84,11 +84,14 @@ class RateLimiter {
     if (this.cleanupInterval) return;
     this.cleanupInterval = setInterval(() => {
       const now = Date.now();
+      const retentionMs = 2 * 60 * 1000; // 2 min grace beyond window, beyond which stale entries are purged
       for (const [key, record] of this.store.entries()) {
-        const windowStart = now - record.windowMs;
-        const before = record.timestamps.length;
-        record.timestamps = record.timestamps.filter(ts => ts > windowStart);
-        if (record.timestamps.length === 0) {
+        if (record.timestamps.length > 0) {
+          const newestRequest = Math.max(...record.timestamps);
+          if (now - newestRequest > record.windowMs + retentionMs) {
+            this.store.delete(key);
+          }
+        } else {
           this.store.delete(key);
         }
       }
@@ -122,10 +125,6 @@ export function applyRateLimit(request, identifier, options = {}) {
     windowMs = 60 * 1000,
     onLimitExceeded = null,
   } = options;
-
-  if (!identifier) {
-    return null; // No identifier provided, cannot rate limit (should be caught earlier)
-  }
 
   const result = rateLimiter.check(identifier, maxRequests, windowMs);
 
@@ -163,6 +162,14 @@ export function applyRateLimit(request, identifier, options = {}) {
 export function withRateLimit(handler, options = {}) {
   return async (request, ...args) => {
     const identifier = options.getIdentifier?.(request) || request.headers.get('X-Visitor-ID');
+
+    if (!identifier) {
+      return new Response(
+        JSON.stringify({ error: 'Too many requests', message: 'Rate limit could not be determined for your request' }),
+        { status: 429, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
     const rateLimitResult = applyRateLimit(request, identifier, options);
 
     if (rateLimitResult) {

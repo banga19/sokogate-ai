@@ -63,7 +63,9 @@ export default function NeonAdapter(client: Pool): NeonAdapter {
       where identifier = $1 and token = $2
       RETURNING identifier, expires, token `;
       const result = await client.query(sql, [identifier, token]);
-      return result.rowCount !== 0 ? result.rows[0] : null;
+      if (result.rowCount === 0 || !result.rows?.[0]) return null;
+      const { identifier: id, expires: exp, token: tok } = result.rows[0];
+      return { identifier: id, expires: exp, token: tok };
     },
 
     async createUser(user: Omit<AdapterUser, 'id'>) {
@@ -91,19 +93,23 @@ export default function NeonAdapter(client: Pool): NeonAdapter {
     },
     async getUserByEmail(email) {
       const sql = 'select * from auth_users where email = $1';
-      const result = await client.query(sql, [email]);
-      if (result.rowCount === 0) {
+      try {
+        const result = await client.query(sql, [email]);
+        if (result.rowCount === 0) {
+          return null;
+        }
+        const userData = result.rows[0];
+        const accountsData = await client.query(
+          'select * from auth_accounts where "userId" = $1',
+          [userData.id]
+        );
+        return {
+          ...userData,
+          accounts: accountsData.rows,
+        };
+      } catch {
         return null;
       }
-      const userData = result.rows[0];
-      const accountsData = await client.query(
-        'select * from auth_accounts where "userId" = $1',
-        [userData.id]
-      );
-      return {
-        ...userData,
-        accounts: accountsData.rows,
-      };
     },
     async getUserByAccount({
       providerAccountId,

@@ -1,7 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import nodeConsole from 'node:console';
 import { config } from 'dotenv';
-import { skipCSRFCheck } from '@auth/core';
 import Credentials from '@auth/core/providers/credentials';
 import Google from '@auth/core/providers/google';
 import GitHub from '@auth/core/providers/github';
@@ -45,10 +44,10 @@ for (const method of ['log', 'info', 'warn', 'error', 'debug'] as const) {
 }
 
 const pool = new Pool({
-	connectionString: process.env.DATABASE_URL,
-	ssl: process.env.NODE_ENV === 'development'
-		? false
-		: { rejectUnauthorized: false },
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'development'
+    ? false
+    : { rejectUnauthorized: true },
 });
 const adapter = NeonAdapter(pool);
 
@@ -101,13 +100,13 @@ if (process.env.AUTH_SECRET) {
 	app.use(
 		'*',
 		initAuthConfig((c) => ({
-			secret: c.env.AUTH_SECRET,
+			secret: process.env.AUTH_SECRET,
 			basePath: '/api/auth',
 			pages: {
 				signIn: '/account/signin',
 				signOut: '/account/logout',
 			},
-			skipCSRFCheck,
+			...(process.env.NODE_ENV === 'development' ? { skipCSRFCheck: true } : {}),
 			session: { strategy: 'jwt' },
 			callbacks: {
 				session({ session, token }) {
@@ -118,9 +117,9 @@ if (process.env.AUTH_SECRET) {
 				},
 			},
 			cookies: {
-				csrfToken: { options: { secure: true, sameSite: 'none' } },
-				sessionToken: { options: { secure: true, sameSite: 'none' } },
-				callbackUrl: { options: { secure: true, sameSite: 'none' } },
+				csrfToken: { options: { secure: process.env.NODE_ENV === 'production', sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' } },
+				sessionToken: { options: { secure: process.env.NODE_ENV === 'production', sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' } },
+				callbackUrl: { options: { secure: process.env.NODE_ENV === 'production', sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' } },
 			},
 			providers: [
 			...(process.env.NEXT_PUBLIC_CREATE_ENV === 'DEVELOPMENT'
@@ -268,7 +267,7 @@ if (process.env.AUTH_SECRET) {
 							clientSecret: {
 								teamId: process.env.APPLE_TEAM_ID,
 								keyId: process.env.APPLE_KEY_ID,
-								privateKey: process.env.APPLE_CLIENT_SECRET,
+								privateKey: process.env.APPLE_PRIVATE_KEY,
 							},
 						})
 				  ]

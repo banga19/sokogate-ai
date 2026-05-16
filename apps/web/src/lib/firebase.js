@@ -13,15 +13,8 @@ let _app = null;
 let _auth = null;
 let _googleProvider = null;
 
-// Development fallback values (dummy/placeholder - NOT for production)
-const devFirebaseConfig = {
-  apiKey: "dev-api-key-placeholder",
-  authDomain: "dev-project.firebaseapp.com",
-  projectId: "dev-project",
-  storageBucket: "dev-project.firebasestorage.app",
-  messagingSenderId: "000000000000",
-  appId: "1:000000000000:web:0000000000000000000000"
-};
+// Development fallback values - use only when Firebase is intentionally not configured
+const devFirebaseConfig = null;
 
 function getFirebase() {
   if (typeof window === "undefined") {
@@ -30,34 +23,32 @@ function getFirebase() {
   
   if (!_app) {
     const isProd = import.meta.env.PROD;
-    const getEnv = (key) => import.meta.env[key];
-    
-    // Required environment variables in production
+
+    // Required environment variables - using NEXT_PUBLIC_ prefix (matching vite envPrefix in vite.config.ts)
     const requiredEnvVars = [
-      'VITE_FIREBASE_API_KEY',
-      'VITE_FIREBASE_AUTH_DOMAIN',
-      'VITE_FIREBASE_PROJECT_ID',
-      'VITE_FIREBASE_STORAGE_BUCKET',
-      'VITE_FIREBASE_MESSAGING_SENDER_ID',
-      'VITE_FIREBASE_APP_ID'
+      'NEXT_PUBLIC_FIREBASE_API_KEY',
+      'NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN',
+      'NEXT_PUBLIC_FIREBASE_PROJECT_ID',
+      'NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET',
+      'NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID',
+      'NEXT_PUBLIC_FIREBASE_APP_ID'
     ];
     
-    // Check if we're missing required env vars in production
-    if (isProd) {
-      const missing = requiredEnvVars.filter(key => !getEnv(key));
-      if (missing.length > 0) {
-        console.error('❌ Missing required Firebase environment variables:', missing);
-        throw new Error('Firebase configuration incomplete. Check environment variables.');
-      }
+    // Check if we're missing required env vars
+    const missing = requiredEnvVars.filter(key => !import.meta.env[key]);
+    if (missing.length > 0) {
+      console.error('❌ Missing required Firebase environment variables:', missing);
+      console.error('   Firebase authentication will be disabled.');
+      return { app: null, auth: null, googleProvider: null };
     }
     
     const firebaseConfig = {
-      apiKey: getEnv('VITE_FIREBASE_API_KEY') || devFirebaseConfig.apiKey,
-      authDomain: getEnv('VITE_FIREBASE_AUTH_DOMAIN') || devFirebaseConfig.authDomain,
-      projectId: getEnv('VITE_FIREBASE_PROJECT_ID') || devFirebaseConfig.projectId,
-      storageBucket: getEnv('VITE_FIREBASE_STORAGE_BUCKET') || devFirebaseConfig.storageBucket,
-      messagingSenderId: getEnv('VITE_FIREBASE_MESSAGING_SENDER_ID') || devFirebaseConfig.messagingSenderId,
-      appId: getEnv('VITE_FIREBASE_APP_ID') || devFirebaseConfig.appId
+      apiKey: import.meta.env['NEXT_PUBLIC_FIREBASE_API_KEY'],
+      authDomain: import.meta.env['NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN'],
+      projectId: import.meta.env['NEXT_PUBLIC_FIREBASE_PROJECT_ID'],
+      storageBucket: import.meta.env['NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET'],
+      messagingSenderId: import.meta.env['NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID'],
+      appId: import.meta.env['NEXT_PUBLIC_FIREBASE_APP_ID']
     };
      
     _app = initializeApp(firebaseConfig);

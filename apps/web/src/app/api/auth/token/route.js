@@ -1,6 +1,9 @@
 import { getToken } from '@auth/core/jwt';
 export async function GET(request) {
-	const isSecure = process.env.AUTH_URL?.startsWith('https') ?? request.url?.startsWith('https') ?? false;
+	// Detect HTTPS: prefer X-Forwarded-Proto header (reverse proxy), then AUTH_URL, then request URL
+	const isSecure = (request.headers.get('x-forwarded-proto')?.split(',')[0].trim() === 'https')
+		|| (process.env.AUTH_URL?.startsWith('https') ?? false)
+		|| request.url?.startsWith('https');
 	const [token, jwt] = await Promise.all([
 		getToken({
 			req: request,

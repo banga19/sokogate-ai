@@ -8,6 +8,14 @@ import sql from './sql';
  * or by having admin=true in auth_users metadata (future enhancement)
  */
 export async function adminAuthMiddleware(request) {
+  if (!process.env.AUTH_SECRET) {
+    return {
+      success: false,
+      error: 'Server misconfigured: AUTH_SECRET is not set',
+      status: 500,
+    };
+  }
+
   const token = await getToken({
     req: request,
     secret: process.env.AUTH_SECRET,

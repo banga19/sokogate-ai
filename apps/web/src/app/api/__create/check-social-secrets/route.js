@@ -1,4 +1,5 @@
 const ALLOWED_PROVIDERS = new Set(['google', 'facebook', 'twitter', 'apple']);
+const PROVIDERS_WITH_SECRETS = new Set(process.env.NODE_ENV === 'development' ? ['google', 'github', 'facebook', 'twitter', 'apple'] : []);
 
 export function GET(request) {
 	if (process.env.NEXT_PUBLIC_CREATE_ENV !== 'DEVELOPMENT') {
@@ -12,13 +13,9 @@ export function GET(request) {
 		return Response.json({ error: 'invalid provider' }, { status: 400 });
 	}
 
-	const key = provider.toUpperCase();
-	const clientId = `${key}_CLIENT_ID`;
-	const clientSecret = `${key}_CLIENT_SECRET`;
+	const missing = PROVIDERS_WITH_SECRETS.has(provider.toLowerCase())
+		? (provider === 'github' ? ['GITHUB_ID', 'GITHUB_SECRET'] : [`${provider.toUpperCase()}_CLIENT_ID`, `${provider.toUpperCase()}_CLIENT_SECRET`])
+		: [];
 
-	const missing = [];
-	if (!process.env[clientId]) missing.push(clientId);
-	if (!process.env[clientSecret]) missing.push(clientSecret);
-
-	return Response.json({ provider, missing });
+	return Response.json({ provider, configured: missing.length === 0 });
 }
