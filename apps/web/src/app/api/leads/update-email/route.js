@@ -26,11 +26,11 @@ export async function PATCH(request) {
     // Update the lead's email
     const updateResult = await sql`UPDATE leads SET email = ${email} WHERE id = ${leadId} RETURNING *`;
 
-    if (updateResult.rows.length === 0) {
+    if (updateResult.length === 0) {
       return Response.json({ error: "Lead update failed" }, { status: 500 });
     }
 
-    const updatedLead = updateResult.rows[0];
+    const updatedLead = updateResult[0];
     serverEvents.emitLeadUpdate(updatedLead);
 
     return Response.json({

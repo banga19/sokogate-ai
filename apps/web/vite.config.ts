@@ -43,8 +43,8 @@ export default defineConfig({
 			runtime: 'node',
 		}),
 		babel({
-			include: ['src/**/*.{js,jsx,ts,tsx}'], // or RegExp: /src\/.*\.[tj]sx?$/
-			exclude: /node_modules/, // skip everything else
+			include: ['src/**/*.{js,jsx,ts,tsx}'],  // client/tooling files only
+			exclude: /node_modules|src\/app\/api\//, // skip server-side API routes (run in Node.js)
 			babelConfig: {
 				babelrc: false, // don't merge other Babel files
 				configFile: false,

@@ -36,6 +36,19 @@ function extractValue(cookieEntry) {
 // ── Auth middleware ─────────────────────────────────────────────────────────────
 
 /**
+ * Derive a stable `secureCookie` flag used by @auth/core getToken/decode.
+ * Mirrors the logic in `src/__create/@auth/create.js` (the Hono adapter)
+ * so both paths agree on whether the `__Secure-` cookie prefix applies.
+ */
+function resolveSecureCookie() {
+  // In production or behind HTTPS reverse proxy
+  if (process.env.NODE_ENV === 'production') return true;
+  // Dev: check AUTH_URL to decide
+  const authUrl = process.env.AUTH_URL || '';
+  return authUrl.startsWith('https://');
+}
+
+/**
  * Verifies the JWT session token from the `authjs.session-token` cookie.
  *
  * Primary path — `@auth/core`'s `getToken()` handles SessionStore cookie
@@ -45,7 +58,7 @@ function extractValue(cookieEntry) {
  * Fallback — `getToken()` calls `new Headers(req.headers)` internally.
  * When `req` is a Hono `c.req.raw` (a custom Request subclass whose
  * `.headers` getter returns a plain value object rather than a real
- * Headers record), the Winnow of `new Headers(plainObject)` iterates
+ * `Headers` record), construction of `new Headers(plainObject)` iterates
  * the object's own enumerable properties — `method`, `url`, `headers`,
  * etc. — instead of the actual HTTP header entries. Because of this,
  * `sessionStore` sees no cookie named `authjs.session-token` and
@@ -66,16 +79,26 @@ export async function userAuthMiddleware(request) {
     };
   }
 
-  // Primary path — works for standard Web Fetch Request
-  let token = await getToken({
-    req: request,
-    secret: process.env.AUTH_SECRET,
-    secureCookie: process.env.NODE_ENV === 'production',
-  });
+  const cookieName = 'authjs.session-token';
+  const isSecure = resolveSecureCookie();
 
-  // Fallback — handles Hono c.req.raw custom Request subclass
+  // ── Primary path — @auth/core getToken (standard Web Fetch Request) ──
+  let token;
+  try {
+    token = await getToken({
+      req: request,
+      secret: process.env.AUTH_SECRET,
+      secureCookie: isSecure,
+      cookieName,
+    });
+  } catch (err) {
+    // getToken may throw on malformed cookie header or Hono req shape mismatches
+    console.error('[auth] getToken() threw (primary path failed):', err);
+  }
+
+  // ── Fallback — direct cookie header read (Hono / edge cases) ──
   if (!token) {
-    const rawCookieEntry = readCookie(request, 'authjs.session-token');
+    const rawCookieEntry = readCookie(request, cookieName);
     const rawToken = extractValue(rawCookieEntry);
     if (rawToken) {
       try {
@@ -84,24 +107,25 @@ export async function userAuthMiddleware(request) {
         token = await jwtDecode({
           token: rawToken,
           secret: process.env.AUTH_SECRET,
-          salt: 'authjs.session-token',
+          salt: cookieName,
         });
-      } catch (_) {
-        // Encrypted token could not be decrypted — invalid or expired
+      } catch (err) {
+        console.error('[auth] JWT decode failed (fallback path):', err.message);
       }
     }
   }
 
   if (!token) {
     console.warn(
-      '[auth] No valid session token. Cookie header:',
-      readCookie(request, 'authjs.session-token') || '(not present)'
+      '[auth] No valid session token — user must re-authenticate. ' +
+      'Cookie header:',
+      readCookie(request, cookieName) || '(not present)'
     );
     return { success: false, error: 'Unauthorized', status: 401 };
   }
 
   if (!token.email) {
-    console.error('[auth] Token has no email claim:', JSON.stringify(token).slice(0, 120));
+    console.error('[auth] Token has no email claim:', String(token).slice(0, 120));
     return { success: false, error: 'Invalid token', status: 401 };
   }
 

@@ -753,7 +753,14 @@ DO NOT mention LEAD_DATA or HANDOFF tokens to user. Ask only for missing info, n
               progress: buildProgressIndicator('qualified')
             });
        } catch (e) {
-         console.error("Lead save failed:", e);
+         console.error("Lead save failed:", e.message);
+         return Response.json({
+           error: "Failed to save lead to database",
+           leadCaptured: false,
+           content: aiContent.replace(/\|LEAD_DATA:.*?\|/s, "").trim(),
+           stage: currentStage,
+           debugError: e.message
+         }, { status: 500 });
        }
      }
 

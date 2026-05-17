@@ -1,6 +1,6 @@
 import sql from "@/app/api/utils/sql";
 import { ok, error as apiError, validationError } from "@/app/api/utils/apiResponse";
-import { encode } from "@auth/core/jwt";
+import { encode, getToken, decode as jwtDecode } from "@auth/core/jwt";
 
 const COOKIE_NAME = "authjs.session-token";
 const MAX_AGE = 30 * 24 * 60 * 60; // 30 days — matches @auth/core default
@@ -10,31 +10,34 @@ const MAX_AGE = 30 * 24 * 60 * 60; // 30 days — matches @auth/core default
  * Echoes the current @auth/core session user. Returns 401 if no session cookie exists.
  */
 export async function GET(request) {
+  const isSecure = process.env.NODE_ENV === 'production';
+  const cookieName = COOKIE_NAME;
   try {
-    const { getToken, decode as jwtDecode } = await import("@auth/core/jwt");
     let token = await getToken({
       req: request,
       secret: process.env.AUTH_SECRET,
-      secureCookie: process.env.NODE_ENV === "production",
+      secureCookie: isSecure,
+      cookieName,
     });
 
-    // Fallback: if getToken() returned null on a Hono request (same reason
-    // as userAuthMiddleware), read the raw cookie header and decode directly.
+    // Fallback: if primary getToken() fails, derive cookie + decode directly
     if (!token) {
       const cookieHeader =
         request?.header?.('cookie') || request?.headers?.get?.('cookie') || '';
       const rawToken = cookieHeader
         .split(';').map(c => c.trim())
-        .find(c => c.startsWith('authjs.session-token='))
+        .find(c => c.startsWith(`${COOKIE_NAME}=`))
         ?.split('=')[1];
       if (rawToken) {
         try {
           token = await jwtDecode({
             token: rawToken,
             secret: process.env.AUTH_SECRET,
-            salt: 'authjs.session-token',
+            salt: COOKIE_NAME,
           });
-        } catch (_) { /* bad token */ }
+        } catch (err) {
+          console.error('[auth/firebase GET] JWT decode fallback failed:', err.message);
+        }
       }
     }
 
@@ -67,7 +70,9 @@ export async function GET(request) {
  *  3. ID token is verified server-side against oauth2.googleapis.com/tokeninfo
  *  4. User is ensured in auth_users + auth_accounts
  *  5. An encrypted session JWT is issued and sent back as
- *     Set-Cookie: authjs.session-token=...; Path=/; HttpOnly; SameSite=None; Secure
+ *     Set-Cookie: __Secure-authjs.session-token=...; Path=/; HttpOnly;
+ *     SameSite=None; Secure   (production / HTTPS → cross-site fetch safely)
+ *     Set-Cookie: authjs.session-token=...; Path=/; HttpOnly; SameSite=Strict  (HTTP dev)
  *  6. All subsequent /api/* requests carry the cookie; adminAuth.js → getToken() reads it
  */
 export async function POST(request) {
@@ -171,47 +176,56 @@ export async function POST(request) {
 // ── Session cookie helpers ──────────────────────────────────────────────────────
 
 /**
- * Build a Set-Cookie header value using the same @auth/core JWT encoding
- * (A256CBC-HS512 encrypted — matches what getToken() / decode() expects).
+ * Build a Set-Cookie header using @auth/core JWT (A256CBC-HS512 encrypted).
  *
- * SameSite=None; Secure is ALWAYS emitted:
- *  - Chrome 80+ will silently DROP any SameSite=None cookie that lacks Secure.
- *  - The Create.xyz proxy (which delivers the app over HTTPS) will silently
- *    strip a SameSite=None cookie without Secure, so that is the actual
- *    cause of the 401 the user is seeing.
- *  - On a plain localhost:4000 HTTP page the cookie WILL be accepted by
- *    Chrome even with Secure set (Chrome treats localhost like HTTPS for
- *    cookie storage), so the fix is safe for local development as well.
- *  - On production (HTTPS origin) the cookie is stored and sent as intended.
- */
-async function buildCookie(user) {
-  const secret = process.env.AUTH_SECRET;
-  if (!secret) throw new Error("AUTH_SECRET is not configured");
+ * Cookie flags are conditional on whether the connection is secure (HTTPS /
+ * reverse-proxied HTTPS). This ensures cookies work in both dev (http://
+ * localhost:4000) and production HTTPS.
+ *
+   * Secure context (HTTPS in production):
+   *  name      → __Secure-authjs.session-token   (enforced by browser when Secure)
+   *  SameSite  → None  (allows cross-site POST requests to /api/leads)
+   *  Secure    → true  (SameSite=None requires it per browser spec)
+   *
+   * Insecure context (HTTP dev):
+   *  name      → authjs.session-token   (plain, no __Secure- prefix)
+   *  SameSite  → Strict  (browser rejects SameSite=None without Secure in modern Chrome/Edge)
+   *  Secure    → omitted (browsers reject Secure cookies on plain HTTP)
+   */
+  async function buildCookie(user) {
+    const secret = process.env.AUTH_SECRET;
+    if (!secret) throw new Error("AUTH_SECRET is not configured");
 
-  const now = Math.floor(Date.now() / 1000);
-  const encryptedToken = await encode({
-    token: {
-      sub: user.sub,
-      email: user.email,
-      name: user.name,
-      picture: user.image,
-      iat: now,
-      exp: now + MAX_AGE,
-    },
-    secret,
-    maxAge: MAX_AGE,
-    salt: COOKIE_NAME,
-  });
+    // resolveSecureCookie mirrors the same helper in adminAuth.js
+    // so cookie name prefixes stay in sync across buildCookie() and getToken()
+    const isSecure = process.env.NODE_ENV === 'production';
+    const name = isSecure ? `__Secure-${COOKIE_NAME}` : COOKIE_NAME;
+    const sameSite = isSecure ? 'None' : 'Strict';
 
-  return [
-    `${COOKIE_NAME}=${encryptedToken}`,
-    "Path=/",
-    "SameSite=None",
-    "Secure",
-    `Max-Age=${MAX_AGE}`,
-    "HttpOnly",
-  ].join("; ");
-}
+    const now = Math.floor(Date.now() / 1000);
+    const encryptedToken = await encode({
+      token: {
+        sub: user.sub,
+        email: user.email,
+        name: user.name,
+        picture: user.image,
+        iat: now,
+        exp: now + MAX_AGE,
+      },
+      secret,
+      maxAge: MAX_AGE,
+      salt: COOKIE_NAME,
+    });
+
+    return [
+      `${name}=${encryptedToken}`,
+      "Path=/",
+      `SameSite=${sameSite}`,
+      ...(isSecure ? ["Secure"] : []),
+      `Max-Age=${MAX_AGE}`,
+      "HttpOnly",
+    ].join("; ");
+  }
 
 /**
  * Wrap ok() to inject Set-Cookie into the response headers.
