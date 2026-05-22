@@ -1,4 +1,5 @@
 import { getToken, decode as jwtDecode } from '@auth/core/jwt';
+import { appendFileSync, writeFileSync } from 'node:fs';
 
 // ── Cookie helpers ──────────────────────────────────────────────────────────────
 
@@ -9,17 +10,29 @@ import { getToken, decode as jwtDecode } from '@auth/core/jwt';
  */
 function readCookie(request, name) {
   try {
-    return (
-      // Hono c.req backed by Node IncomingMessage
-      request?.header?.('cookie')
-      // Web-standard Request backed by native Headers
-      || request?.headers?.get?.('cookie')
+    const headerMethod = typeof request?.header === 'function' ? 'HONO_HEADER' : 'NO_HONO_HEADER';
+    const headersGetMethod = typeof request?.headers?.get === 'function' ? 'HEADERS_GET' : 'NO_HEADERS_GET';
+    const rawHeaderValue = request?.header?.('cookie');
+    const rawHeadersGetValue = request?.headers?.get?.('cookie');
+    const raw = (
+      rawHeaderValue
+      || rawHeadersGetValue
       || ''
-    )
-      .split(';')
-      .map((c) => c.trim())
-      .find((c) => c.startsWith(`${name}=`));
-  } catch {
+    );
+    const cookieEntry = raw.split(';').map((c) => c.trim()).find((c) => c.startsWith(`${name}=`));
+    const debug = JSON.stringify({
+      headerMethod,
+      headersGetMethod,
+      rawHeaderLength: rawHeaderValue?.length || 0,
+      rawHeadersGetLength: rawHeadersGetValue?.length || 0,
+      hasCookie: raw.length > 0,
+      cookiePreview: raw.substring(0, 120),
+      found: !!cookieEntry,
+    });
+    appendFileSync('/tmp/auth_debug.log', debug + '\n');
+    return cookieEntry;
+  } catch (err) {
+    appendFileSync('/tmp/auth_debug.log', 'readCookie error: ' + err.message + '\n');
     return null;
   }
 }
@@ -71,6 +84,7 @@ function resolveSecureCookie() {
  * cookie (`authjs.session-token`), so the derived encryption key matches.
  */
 export async function userAuthMiddleware(request) {
+  appendFileSync('/tmp/auth_debug.log', '=== userAuthMiddleware called ===\n');
   if (!process.env.AUTH_SECRET) {
     return {
       success: false,
@@ -98,6 +112,7 @@ export async function userAuthMiddleware(request) {
 
   // ── Fallback — direct cookie header read (Hono / edge cases) ──
   if (!token) {
+    appendFileSync('/tmp/auth_debug.log', 'FALLBACK path entered: getToken returned null\n');
     const rawCookieEntry = readCookie(request, cookieName);
     const rawToken = extractValue(rawCookieEntry);
     if (rawToken) {
@@ -109,9 +124,12 @@ export async function userAuthMiddleware(request) {
           secret: process.env.AUTH_SECRET,
           salt: cookieName,
         });
+        appendFileSync('/tmp/auth_debug.log', 'FALLBACK jwtDecode SUCCESS: email=' + (token?.email || 'null') + '\n');
       } catch (err) {
-        console.error('[auth] JWT decode failed (fallback path):', err.message);
+        appendFileSync('/tmp/auth_debug.log', 'JWT DECODE FAILED: ' + err.message + '\n');
       }
+    } else {
+      appendFileSync('/tmp/auth_debug.log', 'FALLBACK: no rawToken from cookie. rawCookieEntry=' + String(rawCookieEntry) + '\n');
     }
   }
 
@@ -136,6 +154,7 @@ export async function userAuthMiddleware(request) {
  * Accepts any valid session — no admin restriction.
  */
 export async function requireUser(request) {
+  appendFileSync('/tmp/auth_debug.log', 'requireUser called\n');
   return await userAuthMiddleware(request);
 }
 
@@ -146,12 +165,15 @@ export async function requireUser(request) {
  * (comma-separated env var).
  */
 export async function adminAuthMiddleware(request) {
+  appendFileSync('/tmp/auth_debug.log', '=== adminAuthMiddleware called ===\n');
   const authResult = await userAuthMiddleware(request);
+  appendFileSync('/tmp/auth_debug.log', 'adminAuthMiddleware: authResult.success=' + authResult.success + ' error=' + authResult.error + '\n');
   if (!authResult.success) return authResult;
 
   const adminEmails =
     process.env.ADMIN_EMAILS?.split(',').map((e) => e.trim().toLowerCase()) || [];
   const isAdmin = adminEmails.includes(authResult.user.email.toLowerCase());
+  appendFileSync('/tmp/auth_debug.log', 'adminAuthMiddleware: isAdmin=' + isAdmin + ' email=' + authResult.user.email + '\n');
 
   if (!isAdmin) {
     return { success: false, error: 'Forbidden: Admin access required', status: 403 };

@@ -382,6 +382,13 @@ VALUES (
  * Call this on server startup
  */
 export async function ensureSchema() {
+  if (sql.isMock) {
+    throw new Error(
+      'Cannot initialize database schema: DATABASE_URL is not set or invalid. ' +
+      'Set a valid Postgres DATABASE_URL environment variable and restart the server.'
+    );
+  }
+
   try {
     await sql.transaction(async (client) => {
       await client.query(SCHEMA_SQL);
@@ -398,6 +405,10 @@ export async function ensureSchema() {
  * @returns {Promise<boolean>} true if connected
  */
 export async function checkDatabase() {
+  if (sql.isMock) {
+    return false;
+  }
+
   try {
     const result = await sql`SELECT 1 as ok`;
     return result[0]?.ok === 1;

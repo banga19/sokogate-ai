@@ -46,6 +46,20 @@ async function retryWithBackoff(fn, maxRetries = 3, initialDelay = 1000) {
   throw lastError;
 }
 
+/**
+ * Throw a clear error if the lead database is not available.
+ * Prevents silent failures where the mock SQL client appears to succeed
+ * but no data is ever persisted to the real database.
+ */
+function assertDatabaseReady() {
+  if (sql.isMock) {
+    throw new Error(
+      'Database is unavailable: DATABASE_URL is not set or is invalid. ' +
+      'Leads cannot be saved. Set a valid Postgres DATABASE_URL and restart.'
+    );
+  }
+}
+
 // ============================================
 // UTILITIES
 // ============================================
@@ -684,13 +698,16 @@ DO NOT mention LEAD_DATA or HANDOFF tokens to user. Ask only for missing info, n
       return Response.json({ content: aiContent.replace(/\|HANDOFF:.*?\|/s, "").trim(), handoffRequested: true, leadCaptured: false, stage: 'handoff_requested' });
     }
 
-     // Lead capture
-     const leadData = extractLeadData(aiContent);
-     if (leadData) {
-       try {
-         const keywordScore = scoreLeadFromText(safeMessages.map(m => m.content).join(" ") + " " + (leadData.message || ""));
-         let category = leadData.category || "Other";
-         if (category === "Other") category = detectCategory(safeMessages.map(m => m.content).join(" ") + " " + (leadData.message || ""));
+      // Lead capture
+      const leadData = extractLeadData(aiContent);
+      if (leadData) {
+        try {
+          // Guard: refuse to write leads when the DB connection is a mock
+          assertDatabaseReady();
+
+          const keywordScore = scoreLeadFromText(safeMessages.map(m => m.content).join(" ") + " " + (leadData.message || ""));
+          let category = leadData.category || "Other";
+          if (category === "Other") category = detectCategory(safeMessages.map(m => m.content).join(" ") + " " + (leadData.message || ""));
 
          const newStage = leadData.company ? 'qualified' : 'contact_capture';
 

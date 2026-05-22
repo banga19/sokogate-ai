@@ -56,13 +56,15 @@ import LeadImportModal from "@/components/LeadImportModal";
 const fetchLeads = async () => {
   const res = await fetch("/api/leads", { credentials: "include" });
   if (!res.ok) return [];
-  return res.json();
+  const body = await res.json();
+  return body.data?.leads || [];
 };
 
 const fetchAnalytics = async () => {
   const res = await fetch("/api/leads/analytics", { credentials: "include" });
-  if (!res.ok) return { total: 0, highIntent: 0, qualified: 0 };
-  return res.json();
+  if (!res.ok) return { total: 0, highIntent: 0, qualified: 0, dailyLeads: [], scoreBreakdown: [], statusBreakdown: [], totals: {} };
+  const body = await res.json();
+  return body.data || body;
 };
 
 const updateLeadStatus = async ({ id, status }) => {
@@ -684,7 +686,7 @@ export default function DashboardPage() {
      },
    });
 
-    const updatePaymentMutation = useMutation({
+   const updatePaymentMutation = useMutation({
       mutationFn: async ({ id, payment_status }) => {
         const res = await fetch("/api/leads", {
           credentials: "include",
@@ -694,29 +696,35 @@ export default function DashboardPage() {
         });
        if (!res.ok) throw new Error("Failed to update payment status");
        return res.json();
-     },
-     onSuccess: (updatedLead) => {
-       queryClient.setQueryData(['leads'], old => old.map(l => l.id === updatedLead.id ? updatedLead : l));
-       queryClient.invalidateQueries({ queryKey: ["analytics"] });
-     },
-   });
+      },
+      onSuccess: (data) => {
+        const updated = data?.data || data;
+        if (updated?.id) {
+          queryClient.setQueryData(['leads'], old => old.map(l => l.id === updated.id ? updated : l));
+        }
+        queryClient.invalidateQueries({ queryKey: ["analytics"] });
+      },
+    });
 
-  const updateShippingMutation = useMutation({
-    mutationFn: async ({ id, shipping_status }) => {
-      const res = await fetch("/api/leads", {
-        credentials: "include",
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, shipping_status }),
-      });
-      if (!res.ok) throw new Error("Failed to update shipping status");
-      return res.json();
-    },
-    onSuccess: (updatedLead) => {
-      queryClient.setQueryData(['leads'], old => old.map(l => l.id === updatedLead.id ? updatedLead : l));
-      queryClient.invalidateQueries({ queryKey: ["analytics"] });
-    },
-  });
+   const updateShippingMutation = useMutation({
+      mutationFn: async ({ id, shipping_status }) => {
+        const res = await fetch("/api/leads", {
+          credentials: "include",
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, shipping_status }),
+        });
+       if (!res.ok) throw new Error("Failed to update shipping status");
+       return res.json();
+      },
+      onSuccess: (data) => {
+        const updated = data?.data || data;
+        if (updated?.id) {
+          queryClient.setQueryData(['leads'], old => old.map(l => l.id === updated.id ? updated : l));
+        }
+        queryClient.invalidateQueries({ queryKey: ["analytics"] });
+      },
+    });
 
      const createLeadMutation = useMutation({
        mutationFn: async (leadData) => {
@@ -732,32 +740,34 @@ export default function DashboardPage() {
          }
          return data;
        },
-       onSuccess: async (newLead) => {
-         await queryClient.cancelQueries({ queryKey: ["leads"] });
-         queryClient.setQueryData(['leads'], (old = []) => [newLead, ...(old || []).filter(l => l.id !== newLead.id)]);
-         queryClient.invalidateQueries({ queryKey: ["leads"] });
-         queryClient.invalidateQueries({ queryKey: ["analytics"] });
-         setShowCreateModal(false);
-         setNewLead({
-           name: "",
-           email: "",
-           phone: "",
-           whatsapp: "",
-           category: "",
-           intent_summary: "",
-           message: "",
-           score: "Medium",
-         });
-       },
-       onError: (err) => {
-         console.error('[CreateLead] Mutation error:', err);
-         // Show toast notification for better UX
-         if (typeof window !== 'undefined') {
-           import('sonner').then(({ toast }) => {
-             toast.error(err.message || 'Failed to create lead');
-           });
-         }
+        onSuccess: async (data) => {
+          const newLead = data?.data || data;
+          if (!newLead?.id) return;
+          await queryClient.cancelQueries({ queryKey: ["leads"] });
+          queryClient.setQueryData(['leads'], (old = []) => [newLead, ...(old || []).filter(l => l.id !== newLead.id)]);
+          queryClient.invalidateQueries({ queryKey: ["leads"] });
+          queryClient.invalidateQueries({ queryKey: ["analytics"] });
+          setShowCreateModal(false);
+          setNewLead({
+            name: "",
+            email: "",
+            phone: "",
+            whatsapp: "",
+            category: "",
+            intent_summary: "",
+            message: "",
+            score: "Medium",
+          });
         },
+        onError: (err) => {
+          console.error('[CreateLead] Mutation error:', err);
+          // Show toast notification for better UX
+          if (typeof window !== 'undefined') {
+            import('sonner').then(({ toast }) => {
+              toast.error(err.message || 'Failed to create lead');
+            });
+          }
+         },
       });
 
     // Data fetching for prospects, investors, partnerships, metrics

@@ -1,11 +1,11 @@
 import sql from "@/app/api/utils/sql";
 import { serverEvents } from "@/server/pubsub";
 import { parseCSV, mapLeadRow, validateLead } from "@/utils/csvImport";
-import { requireAdmin } from "@/app/api/utils/adminAuth";
+import { requireUser } from "@/app/api/utils/adminAuth";
 
 export async function POST(request) {
-  // Admin authentication
-  const auth = await requireAdmin(request);
+  // Accept any valid authenticated session
+  const auth = await requireUser(request);
   if (!auth.success) {
     return Response.json({ error: auth.error }, { status: auth.status });
   }
